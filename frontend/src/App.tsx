@@ -1,13 +1,20 @@
-import { useState, useEffect } from "react";
-import { Flex, Spinner, Center, Text } from "@chakra-ui/react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Flex, Spinner, Center, Text, Box } from "@chakra-ui/react";
 import { TabBar } from "./components/TabBar";
 import { StatusBar } from "./components/StatusBar";
 import { Dashboard } from "./components/dashboard/Dashboard";
+import { DAppFrame } from "./components/DAppFrame";
 import { Wizard } from "./components/wizard/Wizard";
 import { IsFirstRun, GetAccounts, GetNodeSnapshot } from "../wailsjs/go/main/App";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 
 type AppView = "loading" | "wizard" | "main" | "shutdown";
+
+const DAPP_TABS = [
+  { id: "dex", label: "DEX", url: "https://dex.getbze.com" },
+  { id: "burner", label: "Burner", url: "https://burner.getbze.com" },
+  { id: "staking", label: "Staking", url: "https://staking.getbze.com" },
+] as const;
 
 function App() {
   const [view, setView] = useState<AppView>("loading");
@@ -16,10 +23,14 @@ function App() {
   const [activeLabel, setActiveLabel] = useState("");
   const [proxyTarget, setProxyTarget] = useState("public");
 
+  // Track which dApp tabs have been activated (for lazy loading)
+  const [mountedTabs, setMountedTabs] = useState<Set<string>>(new Set());
+  // Increment to force iframe reload
+  const [refreshKey, setRefreshKey] = useState(0);
+
   useEffect(() => {
     checkFirstRun();
 
-    // Listen for node state changes to track proxy target
     GetNodeSnapshot()
       .then((snap: any) => setProxyTarget(snap?.proxyTarget || "public"))
       .catch(() => {});
@@ -28,16 +39,44 @@ function App() {
       setProxyTarget(snap?.proxyTarget || "public");
     });
 
-    // Listen for shutdown event
     const cancelShutdown = EventsOn("app:shutting-down", () => {
       setView("shutdown");
     });
 
+    // Keyboard shortcut: Cmd+R / Ctrl+R to refresh
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "r") {
+        e.preventDefault();
+        handleRefresh();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+
     return () => {
       cancelNode();
       cancelShutdown();
+      window.removeEventListener("keydown", handleKeyDown);
     };
   }, []);
+
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+
+  const handleRefresh = useCallback(() => {
+    if (activeTabRef.current === "dashboard") {
+      window.location.reload();
+    } else {
+      setRefreshKey((k) => k + 1);
+    }
+  }, []);
+
+  // When a dApp tab is activated for the first time, mount its iframe
+  function handleTabChange(tabId: string) {
+    setActiveTab(tabId);
+    if (tabId !== "dashboard" && !mountedTabs.has(tabId)) {
+      setMountedTabs((prev) => new Set([...prev, tabId]));
+    }
+  }
 
   async function checkFirstRun() {
     try {
@@ -98,26 +137,45 @@ function App() {
     <Flex direction="column" h="100vh">
       <TabBar
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={handleTabChange}
+        onRefresh={handleRefresh}
         accountLabel={activeLabel}
         accountAddress={activeAddress}
         onAccountChanged={loadAccounts}
       />
-      <Flex flex="1" bg="bg" overflow="hidden">
-        {activeTab === "dashboard" && (
+
+      {/* Content area — dashboard + dApp iframes */}
+      <Box flex="1" bg="bg" overflow="hidden" position="relative">
+        {/* Dashboard */}
+        <Box
+          position="absolute"
+          top="0" left="0"
+          width="100%" height="100%"
+          display={activeTab === "dashboard" ? "block" : "none"}
+          overflow="hidden"
+        >
           <Dashboard
             address={activeAddress}
             label={activeLabel}
             proxyTarget={proxyTarget}
-            onNavigate={setActiveTab}
+            onNavigate={handleTabChange}
           />
+        </Box>
+
+        {/* dApp iframes — lazy mounted, kept alive via display:none */}
+        {DAPP_TABS.map((tab) =>
+          mountedTabs.has(tab.id) ? (
+            <DAppFrame
+              key={tab.id}
+              url={tab.url}
+              label={tab.label}
+              isActive={activeTab === tab.id}
+              refreshKey={activeTab === tab.id ? refreshKey : undefined}
+            />
+          ) : null
         )}
-        {activeTab !== "dashboard" && (
-          <Center flex="1" color="fg.muted">
-            {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} — coming in Epic 4
-          </Center>
-        )}
-      </Flex>
+      </Box>
+
       <StatusBar />
     </Flex>
   );

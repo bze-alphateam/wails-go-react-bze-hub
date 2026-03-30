@@ -5,7 +5,7 @@ import {
 } from "@chakra-ui/react";
 import { LuX, LuSettings, LuCode } from "react-icons/lu";
 import {
-  GetSettings, UpdateSetting, GetLogPath, ForceReInitNode,
+  GetSettings, UpdateSetting, GetLogPath, ForceReInitNode, ForceReInitCooldownRemaining,
 } from "../../wailsjs/go/main/App";
 
 interface SettingsData {
@@ -161,22 +161,7 @@ export function SettingsModal({ open, onClose }: Props) {
                     <Text fontSize="sm" fontFamily="mono">{settings.fastLoopIntervalSec}s / {settings.slowLoopIntervalSec}s</Text>
                   </SettingRow>
 
-                  <Box mt="3" pt="3" borderTopWidth="1px" borderColor="border">
-                    <Text fontSize="sm" fontWeight="semibold" color="red.500" mb="2">Danger zone</Text>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      colorPalette="red"
-                      onClick={async () => {
-                        try { await ForceReInitNode(); onClose(); } catch (e) { console.error("reinit:", e); }
-                      }}
-                    >
-                      Force Re-Init Node
-                    </Button>
-                    <Text fontSize="xs" color="fg.muted" mt="1">
-                      Stops the node, deletes all node data and binary, re-downloads everything.
-                    </Text>
-                  </Box>
+                  <DangerZone onClose={onClose} />
                 </VStack>
               </Box>
             )}
@@ -184,6 +169,65 @@ export function SettingsModal({ open, onClose }: Props) {
         </Box>
       </Box>
     </Portal>
+  );
+}
+
+function DangerZone({ onClose }: { onClose: () => void }) {
+  const [cooldown, setCooldown] = useState(0);
+  const [feedback, setFeedback] = useState("");
+
+  useEffect(() => {
+    // Check initial cooldown
+    ForceReInitCooldownRemaining().then(setCooldown).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setInterval(() => {
+      setCooldown((c) => {
+        if (c <= 1) { clearInterval(timer); return 0; }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldown]);
+
+  const handleReInit = async () => {
+    setFeedback("");
+    try {
+      await ForceReInitNode();
+      setCooldown(60);
+      setFeedback("Re-initialization started...");
+      setTimeout(onClose, 1500);
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      setFeedback(msg);
+      // Refresh cooldown from server
+      ForceReInitCooldownRemaining().then(setCooldown).catch(() => {});
+    }
+  };
+
+  return (
+    <Box mt="3" pt="3" borderTopWidth="1px" borderColor="border">
+      <Text fontSize="sm" fontWeight="semibold" color="red.500" mb="2">Danger zone</Text>
+      <Button
+        size="sm"
+        variant="outline"
+        colorPalette="red"
+        disabled={cooldown > 0}
+        onClick={handleReInit}
+      >
+        {cooldown > 0 ? `Force Re-Init Node (${cooldown}s)` : "Force Re-Init Node"}
+      </Button>
+      <Text fontSize="xs" color="fg.muted" mt="1">
+        Stops the node, deletes all node data and binary, re-downloads everything.
+      </Text>
+      {feedback && (
+        <Text fontSize="xs" color={feedback.includes("started") ? "green.500" : "orange.500"} mt="1">
+          {feedback}
+        </Text>
+      )}
+    </Box>
   );
 }
 

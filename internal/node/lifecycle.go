@@ -59,7 +59,7 @@ func (np *NodeProcess) Start() error {
 	// Write PID file
 	writePIDFile(np.process.Pid)
 
-	fmt.Printf("[node] started (PID %d)\n", np.process.Pid)
+	logging.Info("node", "process started (PID %d, binary: %s, home: %s)", np.process.Pid, binary, home)
 	return nil
 }
 
@@ -72,7 +72,7 @@ func (np *NodeProcess) Stop() error {
 		return nil
 	}
 
-	fmt.Println("[node] stopping...")
+	logging.Info("node", "stopping process (PID %d)...", np.process.Pid)
 
 	// Send SIGTERM (Unix) or Kill (Windows)
 	if runtime.GOOS == "windows" {
@@ -93,9 +93,9 @@ func (np *NodeProcess) Stop() error {
 
 	select {
 	case <-done:
-		fmt.Println("[node] stopped gracefully")
+		logging.Info("node", "stopped gracefully")
 	case <-time.After(30 * time.Second):
-		fmt.Println("[node] force killing after 30s timeout")
+		logging.Info("node", "force killing after 30s timeout")
 		np.process.Kill()
 	}
 

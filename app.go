@@ -66,6 +66,9 @@ type App struct {
 	// Price cache
 	cachedBzePrice  float64
 	cachedPriceTime time.Time
+
+	// Force re-init cooldown
+	lastForceReInit time.Time
 }
 
 // NewApp creates a new App application struct.
@@ -221,12 +224,14 @@ func (a *App) shutdown(ctx context.Context) {
 // setupNode orchestrates the full node setup: instance detection, config fetch,
 // binary download, port discovery, node init, and proxy startup.
 func (a *App) setupNode(ctx context.Context) {
+	logging.Info("app", "=== node setup starting ===")
+
 	// 1. Check for existing instance
 	a.appState.SetCurrentWork("Checking for running instances...")
+	logging.Debug("app", "checking for existing instance...")
 	existingInst, alive := node.CheckExistingInstance()
 	if alive {
-		// Another instance is running and healthy — use its ports
-		fmt.Println("[app] using existing instance's node and proxies")
+		logging.Info("app", "another instance (PID %d) is running — using its node and proxies", existingInst.PID)
 		a.ports = existingInst.Ports
 		a.ownsNode = false
 		a.startProxiesUsingExisting()
@@ -236,22 +241,26 @@ func (a *App) setupNode(ctx context.Context) {
 
 	// We're the primary instance
 	a.ownsNode = true
+	logging.Info("app", "we are the primary instance")
 
 	// 2. Fetch remote config
 	a.appState.SetCurrentWork("Downloading configuration...")
+	logging.Debug("app", "fetching remote config from %s", remoteConfigURL)
 	cfg, err := node.FetchRemoteConfig(remoteConfigURL)
 	if err != nil {
-		fmt.Printf("[app] ERROR: remote config fetch failed: %v\n", err)
+		logging.Error("app", "remote config fetch failed: %v", err)
 		a.appState.SetCurrentWork("Configuration failed")
 		time.Sleep(3 * time.Second)
 		a.appState.SetCurrentWork("")
 		return
 	}
 	a.remoteConfig = cfg
-	fmt.Printf("[app] remote config fetched (chain: %s, version: %s)\n", cfg.ChainID, cfg.Version)
+	logging.Info("app", "remote config fetched (chain: %s, version: %s, rpc_servers: %v)",
+		cfg.ChainID, cfg.Version, cfg.StateSyncRPCServers)
 
 	// 3. Download binary if needed
 	if !node.BinaryExists() {
+		logging.Info("app", "node binary not found — downloading")
 		if err := a.downloadBinary(cfg); err != nil {
 			a.appState.SetCurrentWork("Node download failed")
 			time.Sleep(3 * time.Second)
@@ -259,49 +268,53 @@ func (a *App) setupNode(ctx context.Context) {
 			return
 		}
 	} else {
-		fmt.Println("[app] node binary already exists, skipping download")
+		logging.Debug("app", "node binary already exists at %s", node.BinaryPath())
 	}
 
 	// 4. Port discovery
 	a.appState.SetCurrentWork("Discovering available ports...")
 	defaults := node.DefaultPorts()
-	// Use saved ports from previous session if available
 	if existingInst != nil {
 		defaults = existingInst.Ports
+		logging.Debug("app", "using ports from previous instance as defaults")
 	}
 	ports, err := node.DiscoverPorts(defaults)
 	if err != nil {
-		fmt.Printf("[app] ERROR: port discovery failed: %v\n", err)
+		logging.Error("app", "port discovery failed: %v", err)
 		a.appState.SetCurrentWork("Port discovery failed")
 		time.Sleep(3 * time.Second)
 		a.appState.SetCurrentWork("")
 		return
 	}
 	a.ports = ports
-	fmt.Printf("[app] ports: node(P2P:%d RPC:%d REST:%d gRPC:%d) proxy(REST:%d RPC:%d)\n",
+	logging.Info("app", "ports discovered: node(P2P:%d RPC:%d REST:%d gRPC:%d) proxy(REST:%d RPC:%d)",
 		ports.NodeP2P, ports.NodeRPC, ports.NodeREST, ports.NodeGRPC, ports.ProxyREST, ports.ProxyRPC)
 
 	// 5. Initialize node if needed
 	if !node.IsNodeInitialized() {
+		logging.Info("app", "node not initialized — running full init")
 		a.appState.SetCurrentWork("Initializing node...")
 		if err := node.InitNode(cfg, ports); err != nil {
-			fmt.Printf("[app] ERROR: node init failed: %v\n", err)
+			logging.Error("app", "node init failed: %v", err)
 			a.appState.SetCurrentWork("Node initialization failed")
 			time.Sleep(3 * time.Second)
 			a.appState.SetCurrentWork("")
 			return
 		}
+		logging.Info("app", "node initialization complete")
 	} else {
-		fmt.Println("[app] node already initialized, skipping init")
+		logging.Debug("app", "node already initialized at %s", node.NodeHome())
 	}
 
 	// 6. Write instance.json
 	inst := node.CreateInstance(ports)
 	if err := node.SaveInstance(inst); err != nil {
-		fmt.Printf("[app] WARNING: failed to save instance.json: %v\n", err)
+		logging.Error("app", "failed to save instance.json: %v", err)
+	} else {
+		logging.Debug("app", "instance.json saved (PID %d)", inst.PID)
 	}
 
-	// 7. Sync settings with discovered ports (so GetBalance/GetArticles use the right port)
+	// 7. Sync settings with discovered ports
 	a.settings.ProxyRESTPort = ports.ProxyREST
 	a.settings.ProxyRPCPort = ports.ProxyRPC
 
@@ -314,29 +327,31 @@ func (a *App) setupNode(ctx context.Context) {
 	if publicRPC == "" {
 		publicRPC = "https://rpc.getbze.com"
 	}
+	logging.Info("app", "starting proxy servers (public REST: %s, public RPC: %s)", publicREST, publicRPC)
 	a.startProxies(publicREST, publicRPC)
 
-	// 8. Check for orphan node from previous session
+	// 9. Check for orphan node from previous session
 	orphanPID := node.CleanupOrphanNode()
 	a.nodeProcess = node.NewNodeProcess(ports)
 
 	if orphanPID > 0 {
-		// Node is already running from a previous session — adopt it
-		fmt.Printf("[app] adopting existing node process (PID %d)\n", orphanPID)
+		logging.Info("app", "adopting existing node process (PID %d)", orphanPID)
 		a.appState.SetNodeStatus(state.NodeSyncing)
 		a.appState.SetCurrentWork("Connecting to running node...")
 	} else {
-		// 9. Start a new node
+		// 10. Start a new node
+		logging.Info("app", "starting new node process")
 		a.appState.SetCurrentWork("Starting node...")
 		a.appState.SetNodeStatus(state.NodeStarting)
 		if err := a.nodeProcess.Start(); err != nil {
-			fmt.Printf("[app] ERROR: failed to start node: %v\n", err)
+			logging.Error("app", "failed to start node: %v", err)
 			a.appState.SetNodeStatus(state.NodeError)
 			a.appState.SetCurrentWork("Node failed to start")
 			time.Sleep(3 * time.Second)
 			a.appState.SetCurrentWork("")
 			return
 		}
+		logging.Info("app", "node process started")
 	}
 
 	// 10. Start health monitor
@@ -358,7 +373,7 @@ func (a *App) setupNode(ctx context.Context) {
 	a.routines.Go("doctor", a.doctor.Watch)
 
 	a.appState.SetCurrentWork("Node syncing...")
-	fmt.Println("[app] node started, health monitoring active")
+	logging.Info("app", "=== node setup complete — health monitoring active ===")
 }
 
 // performResync re-downloads configs, resets node data, and restarts.
@@ -367,28 +382,32 @@ func (a *App) performResync() {
 		return
 	}
 
-	fmt.Println("[app] performing re-sync...")
+	logging.Info("app", "=== performing re-sync ===")
 	a.appState.SetNodeStatus(state.NodeResyncing)
 	a.appState.SetProxyTarget("public")
 	a.appState.SetCurrentWork("Re-syncing node...")
 
 	// Stop node
+	logging.Info("app", "stopping node for re-sync")
 	a.nodeProcess.Stop()
 
 	// Re-fetch remote config (get latest configs)
 	a.appState.SetCurrentWork("Downloading fresh configuration...")
+	logging.Info("app", "re-fetching remote config")
 	cfg, err := node.FetchRemoteConfig(remoteConfigURL)
 	if err != nil {
-		fmt.Printf("[app] WARNING: re-fetch config failed, using cached: %v\n", err)
+		logging.Error("app", "re-fetch config failed, using cached: %v", err)
 		cfg = a.remoteConfig
 	} else {
 		a.remoteConfig = cfg
+		logging.Info("app", "fresh config fetched (chain: %s)", cfg.ChainID)
 	}
 
 	// Reset node data
 	a.appState.SetCurrentWork("Resetting node data...")
+	logging.Info("app", "running unsafe-reset-all")
 	if err := node.UnsafeResetAll(); err != nil {
-		fmt.Printf("[app] ERROR: unsafe-reset-all failed: %v\n", err)
+		logging.Error("app", "unsafe-reset-all failed: %v", err)
 		a.appState.SetCurrentWork("Re-sync failed")
 		time.Sleep(3 * time.Second)
 		a.appState.SetCurrentWork("")
@@ -397,8 +416,9 @@ func (a *App) performResync() {
 
 	// Re-download and re-process configs
 	a.appState.SetCurrentWork("Reconfiguring node...")
+	logging.Info("app", "re-downloading and re-processing configs")
 	if err := node.ReInitConfigs(cfg, a.ports); err != nil {
-		fmt.Printf("[app] ERROR: re-init configs failed: %v\n", err)
+		logging.Error("app", "re-init configs failed: %v", err)
 		a.appState.SetCurrentWork("Re-sync config failed")
 		time.Sleep(3 * time.Second)
 		a.appState.SetCurrentWork("")
@@ -407,8 +427,9 @@ func (a *App) performResync() {
 
 	// Restart node
 	a.appState.SetCurrentWork("Restarting node...")
+	logging.Info("app", "restarting node after re-sync")
 	if err := a.nodeProcess.Start(); err != nil {
-		fmt.Printf("[app] ERROR: node restart after re-sync failed: %v\n", err)
+		logging.Error("app", "node restart after re-sync failed: %v", err)
 		a.appState.SetNodeStatus(state.NodeError)
 		a.appState.SetCurrentWork("Re-sync restart failed")
 		time.Sleep(3 * time.Second)
@@ -418,7 +439,7 @@ func (a *App) performResync() {
 
 	a.appState.SetNodeStatus(state.NodeSyncing)
 	a.appState.SetCurrentWork("Node re-syncing...")
-	fmt.Println("[app] re-sync complete, node restarting")
+	logging.Info("app", "=== re-sync complete — node restarting ===")
 }
 
 // downloadBinary resolves the URL and downloads the bzed binary.
@@ -791,48 +812,59 @@ func (a *App) quickNodeCheck() {
 }
 
 // ForceReInitNode stops the node, deletes node data and binary, and re-runs the full setup.
-// Protected against spam clicking — does nothing if a setup is already in progress.
+// Has a 1-minute cooldown between invocations.
 func (a *App) ForceReInitNode() error {
+	// Cooldown check — 1 minute between re-inits
+	if time.Since(a.lastForceReInit) < time.Minute {
+		remaining := time.Minute - time.Since(a.lastForceReInit)
+		logging.Info("app", "force re-init on cooldown, %ds remaining", int(remaining.Seconds()))
+		return fmt.Errorf("please wait %d seconds before trying again", int(remaining.Seconds()))
+	}
+
 	// Guard: don't re-init if already in progress
 	currentWork := a.appState.GetCurrentWork()
 	if currentWork != "" {
-		fmt.Println("[app] re-init ignored — setup already in progress")
+		logging.Info("app", "force re-init ignored — setup already in progress")
 		return fmt.Errorf("setup already in progress")
 	}
 
 	currentStatus := a.appState.GetNodeStatus()
 	if currentStatus == state.NodeResyncing || currentStatus == state.NodeStarting {
-		fmt.Println("[app] re-init ignored — node is busy")
+		logging.Info("app", "force re-init ignored — node is busy (%s)", currentStatus)
 		return fmt.Errorf("node is busy")
 	}
 
-	fmt.Println("[app] force re-init requested")
+	a.lastForceReInit = time.Now()
+	logging.Info("app", "force re-init requested — stopping node and clearing data")
 
 	// Stop node if running
 	if a.nodeProcess != nil && a.nodeProcess.IsRunning() {
+		logging.Info("app", "stopping running node process")
 		a.appState.SetNodeStatus(state.NodeStopped)
 		a.nodeProcess.Stop()
 	}
 
 	// Delete node directory
 	nodePath := node.NodeHome()
-	fmt.Printf("[app] removing %s\n", nodePath)
+	logging.Info("app", "removing node directory: %s", nodePath)
 	if err := os.RemoveAll(nodePath); err != nil {
+		logging.Error("app", "failed to remove node dir: %v", err)
 		return fmt.Errorf("failed to remove node dir: %w", err)
 	}
 
 	// Delete binary
 	binaryPath := node.BinaryPath()
-	fmt.Printf("[app] removing %s\n", binaryPath)
+	logging.Info("app", "removing binary: %s", binaryPath)
 	os.Remove(binaryPath)
 
 	// Delete cached remote config
+	logging.Info("app", "removing cached remote config")
 	os.Remove(filepath.Join(config.ConfigDir(), "remote-config.json"))
 
 	// Remove instance file
 	node.RemoveInstance()
 
-	fmt.Println("[app] starting fresh node setup...")
+	logging.Info("app", "starting fresh node setup...")
 
 	// Re-run setup in background
 	a.routines.Go("node-reinit", func(ctx context.Context) {
@@ -840,6 +872,18 @@ func (a *App) ForceReInitNode() error {
 	})
 
 	return nil
+}
+
+// ForceReInitCooldownRemaining returns seconds left on the re-init cooldown. 0 if ready.
+func (a *App) ForceReInitCooldownRemaining() int {
+	if a.lastForceReInit.IsZero() {
+		return 0
+	}
+	remaining := time.Minute - time.Since(a.lastForceReInit)
+	if remaining <= 0 {
+		return 0
+	}
+	return int(remaining.Seconds())
 }
 
 // --- Dashboard data ---

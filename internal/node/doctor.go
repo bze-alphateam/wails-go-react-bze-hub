@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/bze-alphateam/bze-hub/internal/logging"
 	"github.com/bze-alphateam/bze-hub/internal/state"
 )
 
@@ -64,19 +65,19 @@ func (d *Doctor) Watch(ctx context.Context) {
 		// Check if the stop was intentional (state is Stopped or Resyncing)
 		currentState := d.appState.GetNodeStatus()
 		if currentState == state.NodeStopped || currentState == state.NodeResyncing {
-			fmt.Println("[doctor] node stopped intentionally, not recovering")
+			logging.Info("doctor", "node stopped intentionally, not recovering")
 			continue
 		}
 
 		// Unexpected exit — attempt recovery
-		fmt.Printf("[doctor] node exited unexpectedly: %v\n", err)
+		logging.Info("doctor", "node exited unexpectedly: %v", err)
 		d.appState.SetNodeStatus(state.NodeError)
 		d.appState.SetProxyTarget("public")
 
 		if d.recover(ctx) {
-			fmt.Println("[doctor] node recovered successfully")
+			logging.Info("doctor", "node recovered successfully")
 		} else {
-			fmt.Println("[doctor] all recovery attempts failed — node remains stopped")
+			logging.Info("doctor", "all recovery attempts failed — node remains stopped")
 			d.appState.SetCurrentWork("Node crashed — manual restart needed")
 			time.Sleep(5 * time.Second)
 			d.appState.SetCurrentWork("")
@@ -94,7 +95,7 @@ func (d *Doctor) recover(ctx context.Context) bool {
 		default:
 		}
 
-		fmt.Printf("[doctor] attempt %d/%d — waiting %s before restart\n", attempt+1, len(d.retryDelays), delay)
+		logging.Info("doctor", "attempt %d/%d — waiting %s before restart", attempt+1, len(d.retryDelays), delay)
 		d.appState.SetCurrentWork(fmt.Sprintf("Node recovery attempt %d/%d...", attempt+1, len(d.retryDelays)))
 
 		select {
@@ -105,7 +106,7 @@ func (d *Doctor) recover(ctx context.Context) bool {
 
 		// Try to restart
 		if err := d.nodeProcess.Start(); err != nil {
-			fmt.Printf("[doctor] restart attempt %d failed: %v\n", attempt+1, err)
+			logging.Info("doctor", "restart attempt %d failed: %v", attempt+1, err)
 			continue
 		}
 
@@ -122,7 +123,7 @@ func (d *Doctor) recover(ctx context.Context) bool {
 			return true
 		}
 
-		fmt.Printf("[doctor] node crashed again after restart attempt %d\n", attempt+1)
+		logging.Info("doctor", "node crashed again after restart attempt %d", attempt+1)
 	}
 
 	return false

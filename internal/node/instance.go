@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/bze-alphateam/bze-hub/internal/config"
+	"github.com/bze-alphateam/bze-hub/internal/logging"
 )
 
 // Instance holds the state of a running BZE Hub instance.
@@ -131,26 +132,26 @@ func CheckExistingInstance() (*Instance, bool) {
 
 	// Check if the process is still alive
 	if !IsProcessAlive(inst.PID) {
-		fmt.Printf("[node] stale instance (PID %d dead), taking over\n", inst.PID)
+		logging.Info("instance", "stale instance (PID %d dead), taking over", inst.PID)
 		return inst, false
 	}
 
 	// Process is alive — check if its services are healthy
 	if HealthCheckInstance(inst) {
-		fmt.Printf("[node] another instance (PID %d) is alive and healthy\n", inst.PID)
+		logging.Info("instance", "another instance (PID %d) is alive and healthy", inst.PID)
 		return inst, true // Use existing instance
 	}
 
 	// Process alive but services unhealthy — could be starting up. Wait and retry.
-	fmt.Printf("[node] instance PID %d alive but unhealthy, waiting...\n", inst.PID)
+	logging.Info("instance", "instance PID %d alive but unhealthy, waiting...", inst.PID)
 	time.Sleep(5 * time.Second)
 
 	if HealthCheckInstance(inst) {
-		fmt.Printf("[node] instance PID %d now healthy after wait\n", inst.PID)
+		logging.Info("instance", "instance PID %d now healthy after wait", inst.PID)
 		return inst, true
 	}
 
 	// Still unhealthy — take over
-	fmt.Printf("[node] instance PID %d still unhealthy, taking over\n", inst.PID)
+	logging.Info("instance", "instance PID %d still unhealthy, taking over", inst.PID)
 	return inst, false
 }

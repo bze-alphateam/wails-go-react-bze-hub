@@ -81,7 +81,7 @@ func (cb *circuitBreaker) recordFailure(unrecoverable bool) {
 	}
 	if cb.failCount >= cb.threshold {
 		cb.unsafeUntil = time.Now().Add(cb.cooldown)
-		fmt.Printf("[proxy] circuit breaker tripped — using public for %s\n", cb.cooldown)
+		logging.Info("proxy", "circuit breaker tripped (failures: %d, unrecoverable: %v) — using public for %s", cb.failCount, unrecoverable, cb.cooldown)
 	}
 }
 
@@ -212,7 +212,7 @@ func (p *EndpointProxy) forwardTo(w http.ResponseWriter, r *http.Request, target
 		req.Host = target.Host
 	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		fmt.Printf("[proxy] %s public error: %v\n", p.label, err)
+		logging.Error("proxy", "%s public error: %v", p.label, err)
 		http.Error(w, "proxy error", http.StatusBadGateway)
 	}
 	proxy.ServeHTTP(w, r)
@@ -225,7 +225,7 @@ func (p *EndpointProxy) Start(port int) error {
 		Addr:    addr,
 		Handler: p,
 	}
-	fmt.Printf("[proxy] %s proxy listening on %s\n", p.label, addr)
+	logging.Info("proxy", "%s proxy listening on %s (local: %s, public: %s)", p.label, addr, p.localURL.Host, p.publicURL.Host)
 	err := p.server.ListenAndServe()
 	if err == http.ErrServerClosed {
 		return nil
@@ -238,6 +238,6 @@ func (p *EndpointProxy) Stop(ctx context.Context) error {
 	if p.server == nil {
 		return nil
 	}
-	fmt.Printf("[proxy] %s proxy stopping\n", p.label)
+	logging.Info("proxy", "%s proxy stopping", p.label)
 	return p.server.Shutdown(ctx)
 }

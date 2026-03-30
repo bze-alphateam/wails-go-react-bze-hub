@@ -3,6 +3,8 @@ package node
 import (
 	"fmt"
 	"net"
+
+	"github.com/bze-alphateam/bze-hub/internal/logging"
 )
 
 const maxPortIncrement = 100
@@ -33,41 +35,45 @@ func DefaultPorts() PortSet {
 }
 
 // DiscoverPorts finds available ports starting from defaults.
-// For each port, if the default is taken, it increments by 1 up to maxPortIncrement times.
-// Returns the discovered port set or an error if any port can't be found.
 func DiscoverPorts(defaults PortSet) (PortSet, error) {
+	logging.Info("ports", "discovering available ports (defaults: P2P:%d RPC:%d REST:%d gRPC:%d proxyREST:%d proxyRPC:%d)",
+		defaults.NodeP2P, defaults.NodeRPC, defaults.NodeREST, defaults.NodeGRPC, defaults.ProxyREST, defaults.ProxyRPC)
+
 	var result PortSet
 	var err error
 
-	result.NodeP2P, err = findAvailablePort(defaults.NodeP2P)
+	result.NodeP2P, err = findAvailablePort("node-P2P", defaults.NodeP2P)
 	if err != nil {
 		return result, fmt.Errorf("node P2P port: %w", err)
 	}
 
-	result.NodeRPC, err = findAvailablePort(defaults.NodeRPC)
+	result.NodeRPC, err = findAvailablePort("node-RPC", defaults.NodeRPC)
 	if err != nil {
 		return result, fmt.Errorf("node RPC port: %w", err)
 	}
 
-	result.NodeREST, err = findAvailablePort(defaults.NodeREST)
+	result.NodeREST, err = findAvailablePort("node-REST", defaults.NodeREST)
 	if err != nil {
 		return result, fmt.Errorf("node REST port: %w", err)
 	}
 
-	result.NodeGRPC, err = findAvailablePort(defaults.NodeGRPC)
+	result.NodeGRPC, err = findAvailablePort("node-gRPC", defaults.NodeGRPC)
 	if err != nil {
 		return result, fmt.Errorf("node gRPC port: %w", err)
 	}
 
-	result.ProxyREST, err = findAvailablePort(defaults.ProxyREST)
+	result.ProxyREST, err = findAvailablePort("proxy-REST", defaults.ProxyREST)
 	if err != nil {
 		return result, fmt.Errorf("proxy REST port: %w", err)
 	}
 
-	result.ProxyRPC, err = findAvailablePort(defaults.ProxyRPC)
+	result.ProxyRPC, err = findAvailablePort("proxy-RPC", defaults.ProxyRPC)
 	if err != nil {
 		return result, fmt.Errorf("proxy RPC port: %w", err)
 	}
+
+	logging.Info("ports", "all ports discovered: node(P2P:%d RPC:%d REST:%d gRPC:%d) proxy(REST:%d RPC:%d)",
+		result.NodeP2P, result.NodeRPC, result.NodeREST, result.NodeGRPC, result.ProxyREST, result.ProxyRPC)
 
 	return result, nil
 }
@@ -82,16 +88,19 @@ func IsPortAvailable(port int) bool {
 	return true
 }
 
-// findAvailablePort starts from startPort and increments until it finds an available one.
-func findAvailablePort(startPort int) (int, error) {
+func findAvailablePort(name string, startPort int) (int, error) {
 	for i := 0; i < maxPortIncrement; i++ {
 		port := startPort + i
 		if IsPortAvailable(port) {
 			if port != startPort {
-				fmt.Printf("[node] port %d taken, using %d instead\n", startPort, port)
+				logging.Info("ports", "%s: default %d taken, using %d (+%d)", name, startPort, port, i)
+			} else {
+				logging.Debug("ports", "%s: %d available", name, port)
 			}
 			return port, nil
 		}
+		logging.Debug("ports", "%s: %d in use, trying next", name, port)
 	}
+	logging.Error("ports", "%s: no available port in range %d-%d", name, startPort, startPort+maxPortIncrement-1)
 	return 0, fmt.Errorf("no available port found in range %d-%d", startPort, startPort+maxPortIncrement-1)
 }

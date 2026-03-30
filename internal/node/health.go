@@ -132,10 +132,15 @@ func (hm *HealthMonitor) fastCheck() {
 }
 
 func (hm *HealthMonitor) updateFromStatus(status *LocalNodeStatus) {
+	prevStatus := hm.appState.GetNodeStatus()
+
 	// Update height
 	hm.appState.SetNodeHeight(status.LatestBlockHeight)
 
 	if status.CatchingUp {
+		if prevStatus != state.NodeSyncing {
+			logging.Info("health", "node is catching up (height: %d) — proxy using public", status.LatestBlockHeight)
+		}
 		hm.appState.SetNodeStatus(state.NodeSyncing)
 		hm.appState.SetProxyTarget("public")
 		return
@@ -149,16 +154,19 @@ func (hm *HealthMonitor) updateFromStatus(status *LocalNodeStatus) {
 	}
 
 	if blockAge > maxAge {
-		// catching_up is false but block is stale — node may have lost peers
+		if prevStatus != state.NodeSyncing {
+			logging.Info("health", "node block stale (age: %.1fs, threshold: %.1fs, height: %d) — proxy using public",
+				blockAge.Seconds(), maxAge.Seconds(), status.LatestBlockHeight)
+		}
 		hm.appState.SetNodeStatus(state.NodeSyncing)
 		hm.appState.SetProxyTarget("public")
 		return
 	}
 
 	// Node is synced and fresh
-	if hm.appState.GetNodeStatus() != state.NodeSynced {
-		logging.Info("health", "node synced — switching proxy to local (height: %d, block age: %s)",
-			status.LatestBlockHeight, blockAge)
+	if prevStatus != state.NodeSynced {
+		logging.Info("health", "node synced — switching proxy to local (height: %d, block age: %.1fs)",
+			status.LatestBlockHeight, blockAge.Seconds())
 	}
 	hm.appState.SetNodeStatus(state.NodeSynced)
 	hm.appState.SetProxyTarget("local")
@@ -171,19 +179,27 @@ func (hm *HealthMonitor) updateFromStatus(status *LocalNodeStatus) {
 // --- Slow check (every hour) ---
 
 func (hm *HealthMonitor) slowCheck() {
+	logging.Debug("health", "slow check running")
+
 	if !hm.nodeProcess.IsRunning() {
+		logging.Debug("health", "slow check: node not running, skipping")
 		return
 	}
 
 	currentState := hm.appState.GetNodeStatus()
 	if currentState == state.NodeStopped || currentState == state.NodeResyncing || currentState == state.NodeStarting {
+		logging.Debug("health", "slow check: node in state %s, skipping", currentState)
 		return
 	}
 
 	status, err := hm.pollLocalStatus()
 	if err != nil {
+		logging.Debug("health", "slow check: failed to poll local status: %v", err)
 		return
 	}
+
+	logging.Debug("health", "slow check: height=%d earliest=%d range=%d",
+		status.LatestBlockHeight, status.EarliestBlockHeight, status.LatestBlockHeight-status.EarliestBlockHeight)
 
 	// 1. Cross-check against public endpoints
 	hm.crossCheck(status)
@@ -196,7 +212,7 @@ func (hm *HealthMonitor) slowCheck() {
 
 	blockRange := status.LatestBlockHeight - status.EarliestBlockHeight
 	if blockRange > threshold {
-		fmt.Printf("[health] block range %d exceeds threshold %d — triggering re-sync\n", blockRange, threshold)
+		logging.Info("health", "block range %d exceeds threshold %d — triggering re-sync", blockRange, threshold)
 		if hm.onResyncNeeded != nil {
 			hm.onResyncNeeded()
 		}
@@ -209,8 +225,11 @@ func (hm *HealthMonitor) slowCheck() {
 		pubHeight, err := getLatestBlockHeight(rpcURL)
 		if err == nil {
 			hm.appState.SetNodeTargetHeight(pubHeight)
+			logging.Debug("health", "public chain height: %d (local: %d)", pubHeight, status.LatestBlockHeight)
 		}
 	}
+
+	logging.Debug("health", "slow check complete")
 }
 
 func (hm *HealthMonitor) crossCheck(local *LocalNodeStatus) {
@@ -223,13 +242,17 @@ func (hm *HealthMonitor) crossCheck(local *LocalNodeStatus) {
 		rpcURL := cleanRPCURL(server)
 		pubHeight, err := getLatestBlockHeight(rpcURL)
 		if err != nil {
+			logging.Debug("health", "cross-check: %s unreachable: %v", rpcURL, err)
 			continue
 		}
 
 		behind := pubHeight - local.LatestBlockHeight
 		if behind > delta {
-			fmt.Printf("[health] local node is %d blocks behind %s (local: %d, public: %d)\n",
+			logging.Info("health", "local node is %d blocks behind %s (local: %d, public: %d)",
 				behind, rpcURL, local.LatestBlockHeight, pubHeight)
+		} else {
+			logging.Debug("health", "cross-check OK: %d blocks behind %s (within delta %d)",
+				behind, rpcURL, delta)
 		}
 		return // Only check against one public endpoint
 	}

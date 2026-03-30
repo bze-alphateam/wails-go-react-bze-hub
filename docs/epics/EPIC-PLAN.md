@@ -135,11 +135,22 @@ Each epic produces a working, testable increment. At the end of each epic, a com
 
 ---
 
+## Epic 4a: iframe dApp Loading
+
+Load BZE dApps in iframes. Tab switching shows/hides iframes. No wallet integration yet. See `epic-04a-plan.md`.
+
+## Epic 4b: @bze/hub-connector Library
+
+Standalone npm package. Detects Hub parent, creates `window.keplr` via postMessage. See `epic-04b-plan.md`.
+
+## Epic 4c: Bridge Integration + Signing
+
+Wire shell ↔ connector ↔ Go wallet. Approval dialog. Account sync. See `epic-04c-plan.md`.
+
 ## Future Epics (to be defined)
 
-- **Epic 4**: UI Shell — iframes, hub-connector, Keplr bridge, dApp tabs, approval dialog
 - **Epic 5**: Auto-updater — binary version checking, download, chain upgrade detection
-- **Epic 6**: Settings polish — developer mode UI, logging viewer, export/import app data
+- **Epic 6**: Settings polish — developer mode editable fields, log viewer in app, export/import app data
 - **Epic 7**: Build & distribution — CI/CD pipeline, cross-platform packaging, signing
 - **Epic 8**: Third-party dApp support — permission model, custom tabs
 

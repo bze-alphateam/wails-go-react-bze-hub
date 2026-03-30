@@ -1,5 +1,5 @@
-import { Box, HStack, Button, Text, Spacer } from "@chakra-ui/react";
-import { LuHouse, LuChartColumn, LuFlame, LuLock } from "react-icons/lu";
+import { Box, HStack, Button, Text, Spacer, IconButton } from "@chakra-ui/react";
+import { LuHouse, LuChartColumn, LuFlame, LuLock, LuRefreshCw } from "react-icons/lu";
 import { WalletMenu } from "./WalletMenu";
 
 const tabs = [
@@ -19,12 +19,13 @@ const tabIcons: Record<string, React.ReactNode> = {
 interface TabBarProps {
   activeTab: string;
   onTabChange: (tabId: string) => void;
+  onRefresh: () => void;
   accountLabel?: string;
   accountAddress?: string;
   onAccountChanged?: () => void;
 }
 
-export function TabBar({ activeTab, onTabChange, accountLabel, accountAddress, onAccountChanged }: TabBarProps) {
+export function TabBar({ activeTab, onTabChange, onRefresh, accountLabel, accountAddress, onAccountChanged }: TabBarProps) {
   return (
     <Box
       borderBottomWidth="1px"
@@ -47,6 +48,15 @@ export function TabBar({ activeTab, onTabChange, accountLabel, accountAddress, o
             <Text ml="1">{tab.label}</Text>
           </Button>
         ))}
+
+        <IconButton
+          aria-label="Refresh"
+          size="sm"
+          variant="ghost"
+          onClick={onRefresh}
+        >
+          {LuRefreshCw({}) as React.ReactNode}
+        </IconButton>
 
         <Spacer />
 
