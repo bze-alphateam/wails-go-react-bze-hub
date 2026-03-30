@@ -5,15 +5,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/bze-alphateam/bze-hub/internal/config"
+	"github.com/bze-alphateam/bze-hub/internal/logging"
+	"github.com/bze-alphateam/bze-hub/internal/node"
 	"github.com/bze-alphateam/bze-hub/internal/proxy"
 	"github.com/bze-alphateam/bze-hub/internal/routines"
 	"github.com/bze-alphateam/bze-hub/internal/state"
 	"github.com/bze-alphateam/bze-hub/internal/wallet"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+// Build-time variable: URL to the remote config JSON.
+// Set via: -ldflags "-X main.remoteConfigURL=https://..."
+var remoteConfigURL = "https://raw.githubusercontent.com/bze-alphateam/bze-configs/refs/heads/main/bze-hub/mainnet.json"
 
 // App struct holds the application state and provides methods
 // that are bound to the frontend via Wails.
@@ -41,6 +49,20 @@ type App struct {
 	pendingMnemonic     string
 	verificationIndices []int
 
+	// Remote config (fetched from bze-configs)
+	remoteConfig *node.RemoteConfig
+
+	// Discovered ports
+	ports node.PortSet
+
+	// Node process + monitoring
+	nodeProcess   *node.NodeProcess
+	healthMonitor *node.HealthMonitor
+	doctor        *node.Doctor
+
+	// Whether we own the node (first instance) or are using another instance's node
+	ownsNode bool
+
 	// Price cache
 	cachedBzePrice  float64
 	cachedPriceTime time.Time
@@ -60,13 +82,17 @@ func (a *App) startup(ctx context.Context) {
 		fmt.Printf("[app] ERROR: failed to create data dirs: %v\n", err)
 	}
 
-	// Load settings and accounts
+	// Load settings first (need log level)
 	settings, err := config.LoadSettings()
 	if err != nil {
 		fmt.Printf("[app] ERROR: failed to load settings: %v\n", err)
 		settings = config.DefaultSettings()
 	}
 	a.settings = settings
+
+	// Initialize logger
+	logging.Init(settings.LogLevel)
+	logging.Info("app", "BZE Hub starting (log level: %s)", settings.LogLevel)
 
 	store, err := config.LoadAccounts()
 	if err != nil {
@@ -92,19 +118,22 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize routine manager
 	a.routines = routines.NewManager(ctx)
 
-	// Start proxy servers
-	a.startProxies()
+	// Start node setup in background (instance detection, download, init, proxies)
+	a.routines.Go("node-setup", func(ctx context.Context) {
+		a.setupNode(ctx)
+	})
 }
 
 // startProxies initializes and starts REST + RPC proxy servers in background goroutines.
-func (a *App) startProxies() {
+// Uses the discovered ports from a.ports.
+func (a *App) startProxies(publicREST, publicRPC string) {
 	proxyCfg := proxy.Config{
-		RESTPort:       a.settings.ProxyRESTPort,
-		RPCPort:        a.settings.ProxyRPCPort,
-		LocalRESTAddr:  "http://localhost:1317",
-		LocalRPCAddr:   "http://localhost:26657",
-		PublicRESTAddr: "https://rest.getbze.com",
-		PublicRPCAddr:  "https://rpc.getbze.com",
+		RESTPort:       a.ports.ProxyREST,
+		RPCPort:        a.ports.ProxyRPC,
+		LocalRESTAddr:  fmt.Sprintf("http://localhost:%d", a.ports.NodeREST),
+		LocalRPCAddr:   fmt.Sprintf("http://localhost:%d", a.ports.NodeRPC),
+		PublicRESTAddr: publicREST,
+		PublicRPCAddr:  publicRPC,
 		TimeoutMs:      a.settings.LocalNodeTimeoutMs,
 		FailThreshold:  a.settings.CircuitBreakerThreshold,
 		CooldownSec:    a.settings.CircuitBreakerCooldownSec,
@@ -138,11 +167,15 @@ func (a *App) startProxies() {
 		}
 	})
 
-	fmt.Printf("[app] proxies started (REST :%d, RPC :%d)\n", proxyCfg.RESTPort, proxyCfg.RPCPort)
+	fmt.Printf("[app] proxies started (REST :%d, RPC :%d) → node (REST :%d, RPC :%d)\n",
+		a.ports.ProxyREST, a.ports.ProxyRPC, a.ports.NodeREST, a.ports.NodeRPC)
 }
 
 // shutdown is called when the app is closing.
 func (a *App) shutdown(ctx context.Context) {
+	// Notify frontend to show shutdown screen
+	wailsRuntime.EventsEmit(a.ctx, "app:shutting-down", nil)
+
 	// Stop proxy servers
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -151,6 +184,18 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 	if a.rpcProxy != nil {
 		a.rpcProxy.Stop(shutdownCtx)
+	}
+
+	// Stop node process if we own it
+	if a.ownsNode {
+		a.appState.SetNodeStatus(state.NodeStopped)
+		if a.nodeProcess != nil && a.nodeProcess.IsRunning() {
+			a.nodeProcess.Stop()
+		} else {
+			// Kill by PID file (covers adopted orphans)
+			node.KillNodeByPIDFile()
+		}
+		node.RemoveInstance()
 	}
 
 	// Stop all background routines
@@ -166,6 +211,255 @@ func (a *App) shutdown(ctx context.Context) {
 
 	// Zero pending mnemonic
 	a.pendingMnemonic = ""
+
+	logging.Info("app", "shutdown complete")
+	logging.Close()
+}
+
+// --- Node setup (background) ---
+
+// setupNode orchestrates the full node setup: instance detection, config fetch,
+// binary download, port discovery, node init, and proxy startup.
+func (a *App) setupNode(ctx context.Context) {
+	// 1. Check for existing instance
+	a.appState.SetCurrentWork("Checking for running instances...")
+	existingInst, alive := node.CheckExistingInstance()
+	if alive {
+		// Another instance is running and healthy — use its ports
+		fmt.Println("[app] using existing instance's node and proxies")
+		a.ports = existingInst.Ports
+		a.ownsNode = false
+		a.startProxiesUsingExisting()
+		a.appState.SetCurrentWork("")
+		return
+	}
+
+	// We're the primary instance
+	a.ownsNode = true
+
+	// 2. Fetch remote config
+	a.appState.SetCurrentWork("Downloading configuration...")
+	cfg, err := node.FetchRemoteConfig(remoteConfigURL)
+	if err != nil {
+		fmt.Printf("[app] ERROR: remote config fetch failed: %v\n", err)
+		a.appState.SetCurrentWork("Configuration failed")
+		time.Sleep(3 * time.Second)
+		a.appState.SetCurrentWork("")
+		return
+	}
+	a.remoteConfig = cfg
+	fmt.Printf("[app] remote config fetched (chain: %s, version: %s)\n", cfg.ChainID, cfg.Version)
+
+	// 3. Download binary if needed
+	if !node.BinaryExists() {
+		if err := a.downloadBinary(cfg); err != nil {
+			a.appState.SetCurrentWork("Node download failed")
+			time.Sleep(3 * time.Second)
+			a.appState.SetCurrentWork("")
+			return
+		}
+	} else {
+		fmt.Println("[app] node binary already exists, skipping download")
+	}
+
+	// 4. Port discovery
+	a.appState.SetCurrentWork("Discovering available ports...")
+	defaults := node.DefaultPorts()
+	// Use saved ports from previous session if available
+	if existingInst != nil {
+		defaults = existingInst.Ports
+	}
+	ports, err := node.DiscoverPorts(defaults)
+	if err != nil {
+		fmt.Printf("[app] ERROR: port discovery failed: %v\n", err)
+		a.appState.SetCurrentWork("Port discovery failed")
+		time.Sleep(3 * time.Second)
+		a.appState.SetCurrentWork("")
+		return
+	}
+	a.ports = ports
+	fmt.Printf("[app] ports: node(P2P:%d RPC:%d REST:%d gRPC:%d) proxy(REST:%d RPC:%d)\n",
+		ports.NodeP2P, ports.NodeRPC, ports.NodeREST, ports.NodeGRPC, ports.ProxyREST, ports.ProxyRPC)
+
+	// 5. Initialize node if needed
+	if !node.IsNodeInitialized() {
+		a.appState.SetCurrentWork("Initializing node...")
+		if err := node.InitNode(cfg, ports); err != nil {
+			fmt.Printf("[app] ERROR: node init failed: %v\n", err)
+			a.appState.SetCurrentWork("Node initialization failed")
+			time.Sleep(3 * time.Second)
+			a.appState.SetCurrentWork("")
+			return
+		}
+	} else {
+		fmt.Println("[app] node already initialized, skipping init")
+	}
+
+	// 6. Write instance.json
+	inst := node.CreateInstance(ports)
+	if err := node.SaveInstance(inst); err != nil {
+		fmt.Printf("[app] WARNING: failed to save instance.json: %v\n", err)
+	}
+
+	// 7. Sync settings with discovered ports (so GetBalance/GetArticles use the right port)
+	a.settings.ProxyRESTPort = ports.ProxyREST
+	a.settings.ProxyRPCPort = ports.ProxyRPC
+
+	// 8. Start proxy servers
+	publicREST := cfg.PublicREST
+	publicRPC := cfg.PublicRPC
+	if publicREST == "" {
+		publicREST = "https://rest.getbze.com"
+	}
+	if publicRPC == "" {
+		publicRPC = "https://rpc.getbze.com"
+	}
+	a.startProxies(publicREST, publicRPC)
+
+	// 8. Check for orphan node from previous session
+	orphanPID := node.CleanupOrphanNode()
+	a.nodeProcess = node.NewNodeProcess(ports)
+
+	if orphanPID > 0 {
+		// Node is already running from a previous session — adopt it
+		fmt.Printf("[app] adopting existing node process (PID %d)\n", orphanPID)
+		a.appState.SetNodeStatus(state.NodeSyncing)
+		a.appState.SetCurrentWork("Connecting to running node...")
+	} else {
+		// 9. Start a new node
+		a.appState.SetCurrentWork("Starting node...")
+		a.appState.SetNodeStatus(state.NodeStarting)
+		if err := a.nodeProcess.Start(); err != nil {
+			fmt.Printf("[app] ERROR: failed to start node: %v\n", err)
+			a.appState.SetNodeStatus(state.NodeError)
+			a.appState.SetCurrentWork("Node failed to start")
+			time.Sleep(3 * time.Second)
+			a.appState.SetCurrentWork("")
+			return
+		}
+	}
+
+	// 10. Start health monitor
+	healthCfg := node.HealthConfig{
+		FastIntervalSec:      a.settings.FastLoopIntervalSec,
+		SlowIntervalSec:      a.settings.SlowLoopIntervalSec,
+		MaxBlockAgeSec:       a.settings.MaxBlockAgeSec,
+		ResyncBlockThreshold: a.settings.ResyncBlockThreshold,
+		CrossCheckDelta:      a.settings.CrossCheckBlockDelta,
+	}
+	a.healthMonitor = node.NewHealthMonitor(a.appState, a.nodeProcess, healthCfg, cfg, ports, func() {
+		a.performResync()
+	})
+	a.routines.Go("health-fast", a.healthMonitor.FastLoop)
+	a.routines.Go("health-slow", a.healthMonitor.SlowLoop)
+
+	// 11. Start doctor (crash recovery)
+	a.doctor = node.NewDoctor(a.appState, a.nodeProcess, a.settings.DoctorRetryDelaysSec)
+	a.routines.Go("doctor", a.doctor.Watch)
+
+	a.appState.SetCurrentWork("Node syncing...")
+	fmt.Println("[app] node started, health monitoring active")
+}
+
+// performResync re-downloads configs, resets node data, and restarts.
+func (a *App) performResync() {
+	if a.remoteConfig == nil || a.nodeProcess == nil {
+		return
+	}
+
+	fmt.Println("[app] performing re-sync...")
+	a.appState.SetNodeStatus(state.NodeResyncing)
+	a.appState.SetProxyTarget("public")
+	a.appState.SetCurrentWork("Re-syncing node...")
+
+	// Stop node
+	a.nodeProcess.Stop()
+
+	// Re-fetch remote config (get latest configs)
+	a.appState.SetCurrentWork("Downloading fresh configuration...")
+	cfg, err := node.FetchRemoteConfig(remoteConfigURL)
+	if err != nil {
+		fmt.Printf("[app] WARNING: re-fetch config failed, using cached: %v\n", err)
+		cfg = a.remoteConfig
+	} else {
+		a.remoteConfig = cfg
+	}
+
+	// Reset node data
+	a.appState.SetCurrentWork("Resetting node data...")
+	if err := node.UnsafeResetAll(); err != nil {
+		fmt.Printf("[app] ERROR: unsafe-reset-all failed: %v\n", err)
+		a.appState.SetCurrentWork("Re-sync failed")
+		time.Sleep(3 * time.Second)
+		a.appState.SetCurrentWork("")
+		return
+	}
+
+	// Re-download and re-process configs
+	a.appState.SetCurrentWork("Reconfiguring node...")
+	if err := node.ReInitConfigs(cfg, a.ports); err != nil {
+		fmt.Printf("[app] ERROR: re-init configs failed: %v\n", err)
+		a.appState.SetCurrentWork("Re-sync config failed")
+		time.Sleep(3 * time.Second)
+		a.appState.SetCurrentWork("")
+		return
+	}
+
+	// Restart node
+	a.appState.SetCurrentWork("Restarting node...")
+	if err := a.nodeProcess.Start(); err != nil {
+		fmt.Printf("[app] ERROR: node restart after re-sync failed: %v\n", err)
+		a.appState.SetNodeStatus(state.NodeError)
+		a.appState.SetCurrentWork("Re-sync restart failed")
+		time.Sleep(3 * time.Second)
+		a.appState.SetCurrentWork("")
+		return
+	}
+
+	a.appState.SetNodeStatus(state.NodeSyncing)
+	a.appState.SetCurrentWork("Node re-syncing...")
+	fmt.Println("[app] re-sync complete, node restarting")
+}
+
+// downloadBinary resolves the URL and downloads the bzed binary.
+func (a *App) downloadBinary(cfg *node.RemoteConfig) error {
+	a.appState.SetCurrentWork("Resolving node binary...")
+	downloadURL, checksum, err := node.ResolveBinaryURL(cfg)
+	if err != nil {
+		fmt.Printf("[app] ERROR: failed to resolve binary URL: %v\n", err)
+		return err
+	}
+	fmt.Printf("[app] binary URL resolved: %s\n", downloadURL)
+
+	a.appState.SetCurrentWork("Downloading BZE node...")
+	err = node.DownloadBinary(downloadURL, checksum, func(downloaded, total int64) {
+		if total > 0 {
+			pct := downloaded * 100 / total
+			a.appState.SetCurrentWork(fmt.Sprintf("Downloading BZE node... %d%%", pct))
+		} else if downloaded > 0 {
+			mb := float64(downloaded) / 1024 / 1024
+			a.appState.SetCurrentWork(fmt.Sprintf("Downloading BZE node... %.1f MB", mb))
+		}
+	})
+	if err != nil {
+		fmt.Printf("[app] ERROR: binary download failed: %v\n", err)
+		return err
+	}
+
+	fmt.Println("[app] node binary downloaded successfully")
+	return nil
+}
+
+// startProxiesUsingExisting configures proxies to use an existing instance's ports.
+// This instance doesn't start its own proxy servers — it connects to the existing ones.
+func (a *App) startProxiesUsingExisting() {
+	fmt.Printf("[app] connecting to existing proxies (REST :%d, RPC :%d)\n",
+		a.ports.ProxyREST, a.ports.ProxyRPC)
+	// The frontend's balance/article fetches use GetBalance/GetArticles which call
+	// through the proxy. We just need to tell them which port to use.
+	// Update settings so the proxy port is known.
+	a.settings.ProxyRESTPort = a.ports.ProxyREST
+	a.settings.ProxyRPCPort = a.ports.ProxyRPC
 }
 
 // --- First-run detection ---
@@ -382,12 +676,44 @@ func (a *App) Unlock(password string) error {
 // GetSettings returns current app settings.
 func (a *App) GetSettings() map[string]interface{} {
 	return map[string]interface{}{
-		"trusted":       a.settings.Trusted,
-		"autoStartNode": a.settings.AutoStartNode,
-		"theme":         a.settings.Theme,
-		"logLevel":      a.settings.LogLevel,
-		"developerMode": a.settings.DeveloperMode,
+		"trusted":                   a.settings.Trusted,
+		"autoStartNode":             a.settings.AutoStartNode,
+		"theme":                     a.settings.Theme,
+		"logLevel":                  a.settings.LogLevel,
+		"developerMode":             a.settings.DeveloperMode,
+		"resyncBlockThreshold":      a.settings.ResyncBlockThreshold,
+		"maxBlockAgeSec":            a.settings.MaxBlockAgeSec,
+		"localNodeTimeoutMs":        a.settings.LocalNodeTimeoutMs,
+		"circuitBreakerThreshold":   a.settings.CircuitBreakerThreshold,
+		"circuitBreakerCooldownSec": a.settings.CircuitBreakerCooldownSec,
+		"proxyRestPort":             a.settings.ProxyRESTPort,
+		"proxyRpcPort":              a.settings.ProxyRPCPort,
+		"fastLoopIntervalSec":       a.settings.FastLoopIntervalSec,
+		"slowLoopIntervalSec":       a.settings.SlowLoopIntervalSec,
+		"crossCheckBlockDelta":      a.settings.CrossCheckBlockDelta,
 	}
+}
+
+// UpdateSetting updates a single setting and saves.
+func (a *App) UpdateSetting(key string, value interface{}) error {
+	switch key {
+	case "logLevel":
+		v := value.(string)
+		a.settings.LogLevel = v
+		logging.SetLevel(v)
+		logging.Info("app", "log level changed to %s", v)
+	case "developerMode":
+		a.settings.DeveloperMode = value.(bool)
+	case "trusted":
+		a.settings.Trusted = value.(bool)
+	case "autoStartNode":
+		a.settings.AutoStartNode = value.(bool)
+	case "theme":
+		a.settings.Theme = value.(string)
+	default:
+		return fmt.Errorf("unknown setting: %s", key)
+	}
+	return config.SaveSettings(a.settings)
 }
 
 // GetVersion returns the application version.
@@ -395,10 +721,21 @@ func (a *App) GetVersion() string {
 	return "0.1.0"
 }
 
+// GetLogPath returns the path to the log file.
+func (a *App) GetLogPath() string {
+	return filepath.Join(config.LogsDir(), "app.log")
+}
+
 // --- Node state (read-only for frontend) ---
 
 // GetNodeSnapshot returns the current node state for the frontend.
+// Also does a live status check to ensure state is fresh.
 func (a *App) GetNodeSnapshot() map[string]interface{} {
+	// Do a quick live check if we have ports configured
+	if a.ports.NodeRPC > 0 {
+		a.quickNodeCheck()
+	}
+
 	snap := a.appState.GetNodeSnapshot()
 	return map[string]interface{}{
 		"status":       snap.Status,
@@ -407,6 +744,102 @@ func (a *App) GetNodeSnapshot() map[string]interface{} {
 		"proxyTarget":  snap.ProxyTarget,
 		"currentWork":  snap.CurrentWork,
 	}
+}
+
+// quickNodeCheck does an immediate status poll and updates AppState.
+func (a *App) quickNodeCheck() {
+	url := fmt.Sprintf("http://127.0.0.1:%d/status", a.ports.NodeRPC)
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Result struct {
+			SyncInfo struct {
+				CatchingUp        bool   `json:"catching_up"`
+				LatestBlockHeight string `json:"latest_block_height"`
+				LatestBlockTime   string `json:"latest_block_time"`
+			} `json:"sync_info"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return
+	}
+
+	si := result.Result.SyncInfo
+	var height int64
+	fmt.Sscanf(si.LatestBlockHeight, "%d", &height)
+	a.appState.SetNodeHeight(height)
+
+	if si.CatchingUp {
+		a.appState.SetNodeStatus(state.NodeSyncing)
+		a.appState.SetProxyTarget("public")
+	} else {
+		blockTime, _ := time.Parse(time.RFC3339Nano, si.LatestBlockTime)
+		maxAge := time.Duration(a.settings.MaxBlockAgeSec) * time.Second
+		if maxAge <= 0 {
+			maxAge = 18 * time.Second
+		}
+		if time.Since(blockTime) < maxAge {
+			a.appState.SetNodeStatus(state.NodeSynced)
+			a.appState.SetProxyTarget("local")
+		}
+	}
+}
+
+// ForceReInitNode stops the node, deletes node data and binary, and re-runs the full setup.
+// Protected against spam clicking — does nothing if a setup is already in progress.
+func (a *App) ForceReInitNode() error {
+	// Guard: don't re-init if already in progress
+	currentWork := a.appState.GetCurrentWork()
+	if currentWork != "" {
+		fmt.Println("[app] re-init ignored — setup already in progress")
+		return fmt.Errorf("setup already in progress")
+	}
+
+	currentStatus := a.appState.GetNodeStatus()
+	if currentStatus == state.NodeResyncing || currentStatus == state.NodeStarting {
+		fmt.Println("[app] re-init ignored — node is busy")
+		return fmt.Errorf("node is busy")
+	}
+
+	fmt.Println("[app] force re-init requested")
+
+	// Stop node if running
+	if a.nodeProcess != nil && a.nodeProcess.IsRunning() {
+		a.appState.SetNodeStatus(state.NodeStopped)
+		a.nodeProcess.Stop()
+	}
+
+	// Delete node directory
+	nodePath := node.NodeHome()
+	fmt.Printf("[app] removing %s\n", nodePath)
+	if err := os.RemoveAll(nodePath); err != nil {
+		return fmt.Errorf("failed to remove node dir: %w", err)
+	}
+
+	// Delete binary
+	binaryPath := node.BinaryPath()
+	fmt.Printf("[app] removing %s\n", binaryPath)
+	os.Remove(binaryPath)
+
+	// Delete cached remote config
+	os.Remove(filepath.Join(config.ConfigDir(), "remote-config.json"))
+
+	// Remove instance file
+	node.RemoveInstance()
+
+	fmt.Println("[app] starting fresh node setup...")
+
+	// Re-run setup in background
+	a.routines.Go("node-reinit", func(ctx context.Context) {
+		a.setupNode(ctx)
+	})
+
+	return nil
 }
 
 // --- Dashboard data ---

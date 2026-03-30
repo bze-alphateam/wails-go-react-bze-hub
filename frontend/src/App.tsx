@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Flex, Spinner, Center } from "@chakra-ui/react";
+import { Flex, Spinner, Center, Text } from "@chakra-ui/react";
 import { TabBar } from "./components/TabBar";
 import { StatusBar } from "./components/StatusBar";
 import { Dashboard } from "./components/dashboard/Dashboard";
@@ -7,7 +7,7 @@ import { Wizard } from "./components/wizard/Wizard";
 import { IsFirstRun, GetAccounts, GetNodeSnapshot } from "../wailsjs/go/main/App";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 
-type AppView = "loading" | "wizard" | "main";
+type AppView = "loading" | "wizard" | "main" | "shutdown";
 
 function App() {
   const [view, setView] = useState<AppView>("loading");
@@ -24,10 +24,19 @@ function App() {
       .then((snap: any) => setProxyTarget(snap?.proxyTarget || "public"))
       .catch(() => {});
 
-    const cancel = EventsOn("state:node-changed", (snap: any) => {
+    const cancelNode = EventsOn("state:node-changed", (snap: any) => {
       setProxyTarget(snap?.proxyTarget || "public");
     });
-    return cancel;
+
+    // Listen for shutdown event
+    const cancelShutdown = EventsOn("app:shutting-down", () => {
+      setView("shutdown");
+    });
+
+    return () => {
+      cancelNode();
+      cancelShutdown();
+    };
   }, []);
 
   async function checkFirstRun() {
@@ -61,6 +70,16 @@ function App() {
 
   function handleWizardComplete() {
     loadAccounts().then(() => setView("main"));
+  }
+
+  if (view === "shutdown") {
+    return (
+      <Center h="100vh" flexDirection="column" gap="4">
+        <Spinner size="xl" color="teal.500" />
+        <Text fontSize="lg" fontWeight="semibold" color="fg">Shutting down...</Text>
+        <Text fontSize="sm" color="fg.muted">Stopping node and cleaning up. Please wait.</Text>
+      </Center>
+    );
   }
 
   if (view === "loading") {

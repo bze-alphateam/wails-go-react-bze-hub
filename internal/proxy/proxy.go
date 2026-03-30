@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bze-alphateam/bze-hub/internal/logging"
 	"github.com/bze-alphateam/bze-hub/internal/state"
 )
 
@@ -150,16 +151,18 @@ func (p *EndpointProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	useLocal := p.appState.GetNodeStatus() == state.NodeSynced && p.cb.isLocalSafe()
 
 	if useLocal {
+		logging.Debug("proxy", "%s %s %s → local (%s)", p.label, r.Method, r.URL.Path, p.localURL.Host)
 		if err := p.forwardWithTimeout(w, r, p.localURL); err != nil {
 			// Local failed — fallback to public
 			unrecoverable := isUnrecoverable(err)
 			p.cb.recordFailure(unrecoverable)
-			fmt.Printf("[proxy] %s local failed (%v), falling back to public\n", p.label, err)
+			logging.Error("proxy", "%s local failed (%v), falling back to public", p.label, err)
 			p.forwardTo(w, r, p.publicURL)
 		} else {
 			p.cb.recordSuccess()
 		}
 	} else {
+		logging.Debug("proxy", "%s %s %s → public (%s)", p.label, r.Method, r.URL.Path, p.publicURL.Host)
 		p.forwardTo(w, r, p.publicURL)
 	}
 }
