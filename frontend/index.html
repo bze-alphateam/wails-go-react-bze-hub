@@ -3,11 +3,19 @@
 <head>
     <meta charset="UTF-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-    <title>bze-hub-scaffold</title>
+    <title>BZE Hub</title>
+    <script>
+        // Apply color mode before React renders to prevent flash
+        (function() {
+            var mode = localStorage.getItem('bze-hub-color-mode');
+            if (!mode) mode = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            document.documentElement.classList.add(mode);
+            document.documentElement.style.colorScheme = mode;
+        })();
+    </script>
 </head>
 <body>
 <div id="root"></div>
 <script src="./src/main.tsx" type="module"></script>
 </body>
 </html>
-

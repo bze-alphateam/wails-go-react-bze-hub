@@ -1,6 +1,10 @@
-import { Box, HStack, Text, Circle } from "@chakra-ui/react";
+import { Box, HStack, Text, Circle, IconButton } from "@chakra-ui/react";
+import { useColorMode } from "../hooks/useColorMode";
+import { LuSun, LuMoon } from "react-icons/lu";
 
 export function StatusBar() {
+  const { colorMode, toggleColorMode } = useColorMode();
+
   return (
     <Box
       borderTopWidth="1px"
@@ -22,7 +26,21 @@ export function StatusBar() {
 
         <Text>|</Text>
 
-        <Text>v0.1.0</Text>
+        <Text>BZE Hub v0.1.0</Text>
+
+        <Box flex="1" />
+
+        <IconButton
+          aria-label="Toggle color mode"
+          size="2xs"
+          variant="ghost"
+          onClick={toggleColorMode}
+        >
+          {colorMode === "light"
+            ? LuMoon({}) as React.ReactNode
+            : LuSun({}) as React.ReactNode
+          }
+        </IconButton>
       </HStack>
     </Box>
   );

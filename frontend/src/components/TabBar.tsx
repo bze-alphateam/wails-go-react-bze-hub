@@ -1,5 +1,6 @@
 import { Box, HStack, Button, Text, Spacer } from "@chakra-ui/react";
 import { LuHouse, LuChartColumn, LuFlame, LuLock } from "react-icons/lu";
+import { WalletMenu } from "./WalletMenu";
 
 const tabs = [
   { id: "dashboard", label: "Dashboard" },
@@ -18,9 +19,12 @@ const tabIcons: Record<string, React.ReactNode> = {
 interface TabBarProps {
   activeTab: string;
   onTabChange: (tabId: string) => void;
+  accountLabel?: string;
+  accountAddress?: string;
+  onAccountChanged?: () => void;
 }
 
-export function TabBar({ activeTab, onTabChange }: TabBarProps) {
+export function TabBar({ activeTab, onTabChange, accountLabel, accountAddress, onAccountChanged }: TabBarProps) {
   return (
     <Box
       borderBottomWidth="1px"
@@ -46,9 +50,13 @@ export function TabBar({ activeTab, onTabChange }: TabBarProps) {
 
         <Spacer />
 
-        <Text fontSize="xs" color="fg.muted">
-          BZE Hub v0.1.0
-        </Text>
+        {accountLabel && accountAddress && onAccountChanged && (
+          <WalletMenu
+            activeLabel={accountLabel}
+            activeAddress={accountAddress}
+            onAccountChanged={onAccountChanged}
+          />
+        )}
       </HStack>
     </Box>
   );

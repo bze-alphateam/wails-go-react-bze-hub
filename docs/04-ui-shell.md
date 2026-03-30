@@ -335,6 +335,13 @@ This means in Hub mode:
 
 > **Open question:** Verify none of the dApps set restrictive CSP `frame-ancestors` headers today. Need to check Next.js default headers for each dApp.
 
+> **TODO — Dark/Light mode sync with dApp iframes:**
+> When the user toggles dark/light mode in the Hub shell, the dApps in iframes should react to match. The shell controls the theme — dApps follow, not the other way around. Options to decide:
+> - Hub-connector sends a `bze-hub:theme-changed` message to iframes. The dApp reads it and calls its own `setColorMode()`.
+> - Hub-connector sets `prefers-color-scheme` via the iframe's `media` attribute (limited browser support).
+> - The hub-connector writes the theme to the iframe's localStorage in the format the dApp expects, then triggers a reload/re-render.
+> Whichever approach is chosen: **shell is the source of truth for theme. dApps never override it back.**
+
 ## 4. React Shell Layout
 
 ### Component Structure
