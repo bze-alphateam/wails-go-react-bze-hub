@@ -1,9 +1,64 @@
+import { useState, useEffect } from "react";
 import { Box, HStack, Text, Circle, IconButton } from "@chakra-ui/react";
 import { useColorMode } from "../hooks/useColorMode";
 import { LuSun, LuMoon } from "react-icons/lu";
+import { EventsOn } from "../../wailsjs/runtime/runtime";
+import { GetNodeSnapshot } from "../../wailsjs/go/main/App";
+
+interface NodeSnapshot {
+  status: string;
+  height: number;
+  targetHeight: number;
+  proxyTarget: string;
+  currentWork: string;
+}
+
+const statusColors: Record<string, string> = {
+  synced: "green.500",
+  syncing: "yellow.500",
+  starting: "blue.500",
+  resyncing: "yellow.500",
+  error: "red.500",
+  stopped: "gray.400",
+  not_started: "gray.400",
+};
+
+const statusLabels: Record<string, string> = {
+  synced: "Synced",
+  syncing: "Syncing",
+  starting: "Starting",
+  resyncing: "Re-syncing",
+  error: "Error",
+  stopped: "Stopped",
+  not_started: "Not started",
+};
 
 export function StatusBar() {
   const { colorMode, toggleColorMode } = useColorMode();
+  const [node, setNode] = useState<NodeSnapshot>({
+    status: "not_started",
+    height: 0,
+    targetHeight: 0,
+    proxyTarget: "public",
+    currentWork: "",
+  });
+
+  useEffect(() => {
+    // Load initial state
+    GetNodeSnapshot()
+      .then((snap: any) => setNode(snap as NodeSnapshot))
+      .catch(() => {});
+
+    // Listen for live updates
+    const cancel = EventsOn("state:node-changed", (snap: NodeSnapshot) => {
+      setNode(snap);
+    });
+    return cancel;
+  }, []);
+
+  const dotColor = statusColors[node.status] || "gray.400";
+  const statusLabel = statusLabels[node.status] || node.status;
+  const heightStr = node.height > 0 ? ` (${node.height.toLocaleString()})` : "";
 
   return (
     <Box
@@ -16,17 +71,30 @@ export function StatusBar() {
     >
       <HStack gap="4" fontSize="xs" color="fg.muted">
         <HStack gap="1.5">
-          <Circle size="2" bg="gray.500" />
-          <Text>Node: not started</Text>
+          <Circle size="2" bg={dotColor} />
+          <Text>Node: {statusLabel}{heightStr}</Text>
         </HStack>
 
         <Text>|</Text>
 
-        <Text>Network: Mainnet</Text>
+        <Text>
+          {node.proxyTarget === "local" ? "Local" : "Public"}
+        </Text>
+
+        <Text>|</Text>
+
+        <Text>Mainnet</Text>
 
         <Text>|</Text>
 
         <Text>BZE Hub v0.1.0</Text>
+
+        {node.currentWork && (
+          <>
+            <Text>|</Text>
+            <Text fontStyle="italic">{node.currentWork}</Text>
+          </>
+        )}
 
         <Box flex="1" />
 

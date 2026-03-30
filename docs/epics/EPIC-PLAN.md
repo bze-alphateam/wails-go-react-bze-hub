@@ -50,38 +50,88 @@ Each epic produces a working, testable increment. At the end of each epic, a com
 
 ---
 
-## Epic 3: Node Manager + Proxy + Background State
+## Epic 3a: Shared State + Routine Manager + Proxy Servers
 
-**Goal**: Local node lifecycle running in background, reverse proxy servers, shared app state with thread-safe access, UI showing real-time node status.
+**Goal**: Core infrastructure for background work. Proxy servers running in "public only" mode (no node yet). Graceful shutdown framework.
 
 **Deliverables**:
 - Go `internal/state/` package:
   - Central `AppState` struct with `sync.RWMutex`
-  - Holds: node status, proxy mode (local/public), active account, current work description
+  - Holds: node status, proxy target (local/public), active account, current work description
   - Thread-safe getters/setters
-  - Observable via Wails events (state changes push to frontend)
-- Go `internal/node/` package:
-  - Binary download from GitHub releases (platform detection, checksum verification)
-  - Node init (fetch config.toml, app.toml, genesis.json from bze-configs via build-time URLs)
-  - State sync configuration (dynamic trust height/hash calculation)
-  - Node start/stop/restart as child process
-  - Health monitor: fast loop (5s, block freshness) + slow loop (hourly, cross-check + re-sync decision)
-  - Crash recovery doctor routine with exponential backoff
-  - PID file for orphan detection
+  - State changes emit Wails events to frontend
+- Go `internal/routines/` package:
+  - `RoutineManager` with `sync.WaitGroup` + `context.Context` cancellation
+  - `Go(name, fn)` to register goroutines, `Shutdown(timeout)` to stop all
 - Go `internal/proxy/` package:
   - REST proxy (`:1418`) and RPC proxy (`:26658`)
   - Circuit breaker (1500ms timeout, 3-strike, 2-min cooldown)
+  - Error classification (recoverable vs unrecoverable)
   - WebSocket proxying for RPC `/websocket`
-  - CORS headers for iframe access
-  - Routing based on `AppState.NodeStatus`
-- Routine tracking for graceful shutdown (all goroutines registered, `sync.WaitGroup` or similar)
-- Context passing: `context.Context` carrying references to storage, shared state, logger
-- React UI updates:
-  - Top bar: active wallet address + node indicator (local/public) + current background activity text
-  - Status bar: node state with colored dot, block height, version
-  - Node progress during first-run download/sync
+  - CORS headers (`Access-Control-Allow-Origin: *`)
+  - Routing based on `AppState.NodeStatus` (initially always "public")
+- `app.go` updated: integrates state, routine manager, proxy startup, graceful shutdown
+- React UI: status bar shows live proxy target (public), node status dot updates from Go events
 
-**Does NOT include**: iframes, hub-connector, Keplr bridge, dApp loading. The app shows the dashboard with wallet panel and node status, but no dApp tabs yet.
+**Does NOT include**: node binary download, node process management, health monitoring.
+
+---
+
+## Epic 3b: Node Binary Download + Init
+
+**Goal**: Download the correct `bzed` binary and initialize the node home directory. Node is configured but not started.
+
+**Deliverables**:
+- Go `internal/node/binary.go`:
+  - Query GitHub releases API for latest `bzed` version
+  - Platform/architecture detection (`runtime.GOOS` + `runtime.GOARCH`)
+  - Download correct asset (tar.gz or zip)
+  - SHA256 checksum verification
+  - Extract binary, set executable permissions
+  - Store version in `node-version.json`
+- Go `internal/node/init.go`:
+  - Run `bzed init` to create directory structure + crypto keys
+  - Download genesis, config.toml, app.toml from bze-configs (build-time URLs via `-ldflags`)
+  - Replace generated configs with fetched ones
+  - Calculate state sync trust height/hash from public RPC
+  - Write state sync params to config.toml
+- React UI:
+  - Progress indicator during download ("Downloading BZE node... 45%")
+  - Status text during init ("Creating node configuration...")
+  - `AppState.CurrentWork` drives the display
+- On completion: binary at `{appdata}/bin/bzed`, node home at `{appdata}/node/` fully configured
+
+**Does NOT include**: starting the node, health monitoring, proxy switching to local.
+
+---
+
+## Epic 3c: Node Lifecycle + Health Monitor
+
+**Goal**: Start/stop the node as a child process. Health monitoring drives proxy routing. Crash recovery.
+
+**Deliverables**:
+- Go `internal/node/lifecycle.go`:
+  - Start node as child process (`bzed start --home ...`)
+  - Stdout/stderr piped to unified logger with `[node]` tag
+  - Stop with SIGTERM (Unix) / Kill (Windows) + 30s timeout
+  - PID file write/read for orphan detection on startup
+- Go `internal/node/health.go`:
+  - Fast loop (every 5s): poll local `/status`, check `catching_up` + `latest_block_time` freshness (18s threshold)
+  - Slow loop (every hour): cross-check against public RPCs, check block range for re-sync trigger (28800 blocks)
+  - Periodic re-sync: stop node → `unsafe-reset-all` → recalculate state sync → restart
+  - Node state machine: `not_started → starting → syncing → synced → resyncing → error → stopped`
+- Go `internal/node/doctor.go`:
+  - Crash detection via `cmd.Wait()`
+  - Exponential backoff retry (5s, 30s, 2min, 5min)
+  - After all retries fail: set state to `error`, user sees manual retry in dashboard
+- Proxy integration: routes to local node when state is `synced`, public otherwise
+- Machine sleep/wake: block freshness check catches stale node automatically
+- React UI:
+  - Status bar: colored dot (green/amber/red/gray), block height, sync progress percentage
+  - Top bar: node indicator text (e.g., "Local" or "Public")
+  - Dashboard: node status panel with Start/Stop/Restart buttons, log viewer
+
+**Does NOT include**: iframes, hub-connector, Keplr bridge, dApp loading.
 
 ---
 
@@ -89,7 +139,7 @@ Each epic produces a working, testable increment. At the end of each epic, a com
 
 - **Epic 4**: UI Shell — iframes, hub-connector, Keplr bridge, dApp tabs, approval dialog
 - **Epic 5**: Auto-updater — binary version checking, download, chain upgrade detection
-- **Epic 6**: Settings polish — developer mode, logging UI, export/import app data
+- **Epic 6**: Settings polish — developer mode UI, logging viewer, export/import app data
 - **Epic 7**: Build & distribution — CI/CD pipeline, cross-platform packaging, signing
 - **Epic 8**: Third-party dApp support — permission model, custom tabs
 

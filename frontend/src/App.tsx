@@ -2,8 +2,10 @@ import { useState, useEffect } from "react";
 import { Flex, Spinner, Center } from "@chakra-ui/react";
 import { TabBar } from "./components/TabBar";
 import { StatusBar } from "./components/StatusBar";
+import { Dashboard } from "./components/dashboard/Dashboard";
 import { Wizard } from "./components/wizard/Wizard";
-import { IsFirstRun, GetAccounts } from "../wailsjs/go/main/App";
+import { IsFirstRun, GetAccounts, GetNodeSnapshot } from "../wailsjs/go/main/App";
+import { EventsOn } from "../wailsjs/runtime/runtime";
 
 type AppView = "loading" | "wizard" | "main";
 
@@ -12,9 +14,20 @@ function App() {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [activeAddress, setActiveAddress] = useState("");
   const [activeLabel, setActiveLabel] = useState("");
+  const [proxyTarget, setProxyTarget] = useState("public");
 
   useEffect(() => {
     checkFirstRun();
+
+    // Listen for node state changes to track proxy target
+    GetNodeSnapshot()
+      .then((snap: any) => setProxyTarget(snap?.proxyTarget || "public"))
+      .catch(() => {});
+
+    const cancel = EventsOn("state:node-changed", (snap: any) => {
+      setProxyTarget(snap?.proxyTarget || "public");
+    });
+    return cancel;
   }, []);
 
   async function checkFirstRun() {
@@ -28,7 +41,7 @@ function App() {
       }
     } catch (e) {
       console.error("startup check failed:", e);
-      setView("wizard"); // fallback to wizard on error
+      setView("wizard");
     }
   }
 
@@ -62,7 +75,6 @@ function App() {
     return <Wizard onComplete={handleWizardComplete} />;
   }
 
-  // Main shell
   return (
     <Flex direction="column" h="100vh">
       <TabBar
@@ -72,39 +84,23 @@ function App() {
         accountAddress={activeAddress}
         onAccountChanged={loadAccounts}
       />
-      <Flex flex="1" align="center" justify="center" bg="bg">
+      <Flex flex="1" bg="bg" overflow="hidden">
         {activeTab === "dashboard" && (
-          <DashboardPlaceholder label={activeLabel} address={activeAddress} />
+          <Dashboard
+            address={activeAddress}
+            label={activeLabel}
+            proxyTarget={proxyTarget}
+            onNavigate={setActiveTab}
+          />
         )}
         {activeTab !== "dashboard" && (
-          <Center color="fg.muted">
+          <Center flex="1" color="fg.muted">
             {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} — coming in Epic 4
           </Center>
         )}
       </Flex>
       <StatusBar />
     </Flex>
-  );
-}
-
-// Temporary dashboard showing wallet info until the full panel is built
-function DashboardPlaceholder({ label, address }: { label: string; address: string }) {
-  const truncated = address.length > 20
-    ? `${address.slice(0, 10)}...${address.slice(-6)}`
-    : address;
-
-  return (
-    <Center>
-      <Flex direction="column" gap="2" textAlign="center">
-        <span style={{ fontSize: "1.5rem", fontWeight: "bold" }}>Dashboard</span>
-        <span style={{ color: "var(--chakra-colors-fg-muted)" }}>
-          Wallet: {label}
-        </span>
-        <span style={{ fontFamily: "monospace", fontSize: "0.875rem" }}>
-          {truncated}
-        </span>
-      </Flex>
-    </Center>
   );
 }
 

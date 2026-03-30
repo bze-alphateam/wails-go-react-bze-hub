@@ -2,10 +2,17 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"time"
 
 	"github.com/bze-alphateam/bze-hub/internal/config"
+	"github.com/bze-alphateam/bze-hub/internal/proxy"
+	"github.com/bze-alphateam/bze-hub/internal/routines"
+	"github.com/bze-alphateam/bze-hub/internal/state"
 	"github.com/bze-alphateam/bze-hub/internal/wallet"
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App struct holds the application state and provides methods
@@ -15,6 +22,16 @@ type App struct {
 	wallet   *wallet.Wallet
 	store    config.AccountStore
 	settings config.AppSettings
+
+	// Shared state — thread-safe, emits events to frontend
+	appState *state.AppState
+
+	// Routine manager — tracks goroutines for graceful shutdown
+	routines *routines.Manager
+
+	// Proxy servers
+	restProxy *proxy.EndpointProxy
+	rpcProxy  *proxy.EndpointProxy
 
 	// Held in memory after unlock (Windows/Linux only).
 	// On macOS this is empty — OS keyring handles auth.
@@ -53,10 +70,90 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.store = store
 	a.wallet = wallet.NewWallet(&a.store)
+
+	// Initialize shared state
+	a.appState = state.New()
+	a.appState.SetContext(ctx)
+	if a.store.ActiveAddress != "" {
+		label := ""
+		for _, acc := range a.store.Accounts {
+			if acc.Bech32Address == a.store.ActiveAddress {
+				label = acc.Label
+				break
+			}
+		}
+		a.appState.SetActiveAccount(a.store.ActiveAddress, label)
+	}
+
+	// Initialize routine manager
+	a.routines = routines.NewManager(ctx)
+
+	// Start proxy servers
+	a.startProxies()
+}
+
+// startProxies initializes and starts REST + RPC proxy servers in background goroutines.
+func (a *App) startProxies() {
+	proxyCfg := proxy.Config{
+		RESTPort:       a.settings.ProxyRESTPort,
+		RPCPort:        a.settings.ProxyRPCPort,
+		LocalRESTAddr:  "http://localhost:1317",
+		LocalRPCAddr:   "http://localhost:26657",
+		PublicRESTAddr: "https://rest.getbze.com",
+		PublicRPCAddr:  "https://rpc.getbze.com",
+		TimeoutMs:      a.settings.LocalNodeTimeoutMs,
+		FailThreshold:  a.settings.CircuitBreakerThreshold,
+		CooldownSec:    a.settings.CircuitBreakerCooldownSec,
+	}
+
+	restProxy, err := proxy.NewEndpointProxy("REST", proxyCfg.LocalRESTAddr, proxyCfg.PublicRESTAddr, a.appState, proxyCfg)
+	if err != nil {
+		fmt.Printf("[app] ERROR: failed to create REST proxy: %v\n", err)
+		return
+	}
+	a.restProxy = restProxy
+
+	rpcProxy, err := proxy.NewEndpointProxy("RPC", proxyCfg.LocalRPCAddr, proxyCfg.PublicRPCAddr, a.appState, proxyCfg)
+	if err != nil {
+		fmt.Printf("[app] ERROR: failed to create RPC proxy: %v\n", err)
+		return
+	}
+	a.rpcProxy = rpcProxy
+
+	// Start REST proxy in background
+	a.routines.Go("rest-proxy", func(ctx context.Context) {
+		if err := a.restProxy.Start(proxyCfg.RESTPort); err != nil {
+			fmt.Printf("[app] ERROR: REST proxy failed: %v\n", err)
+		}
+	})
+
+	// Start RPC proxy in background
+	a.routines.Go("rpc-proxy", func(ctx context.Context) {
+		if err := a.rpcProxy.Start(proxyCfg.RPCPort); err != nil {
+			fmt.Printf("[app] ERROR: RPC proxy failed: %v\n", err)
+		}
+	})
+
+	fmt.Printf("[app] proxies started (REST :%d, RPC :%d)\n", proxyCfg.RESTPort, proxyCfg.RPCPort)
 }
 
 // shutdown is called when the app is closing.
 func (a *App) shutdown(ctx context.Context) {
+	// Stop proxy servers
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if a.restProxy != nil {
+		a.restProxy.Stop(shutdownCtx)
+	}
+	if a.rpcProxy != nil {
+		a.rpcProxy.Stop(shutdownCtx)
+	}
+
+	// Stop all background routines
+	if a.routines != nil {
+		a.routines.Shutdown(30 * time.Second)
+	}
+
 	// Zero password from memory
 	for i := range a.password {
 		a.password = a.password[:i] + "\x00" + a.password[i+1:]
@@ -249,6 +346,15 @@ func (a *App) SwitchAccount(address string) error {
 	if err := a.store.SetActive(address); err != nil {
 		return err
 	}
+	// Update shared state so frontend stays in sync
+	label := ""
+	for _, acc := range a.store.Accounts {
+		if acc.Bech32Address == address {
+			label = acc.Label
+			break
+		}
+	}
+	a.appState.SetActiveAccount(address, label)
 	return config.SaveAccounts(a.store)
 }
 
@@ -283,6 +389,132 @@ func (a *App) GetSettings() map[string]interface{} {
 // GetVersion returns the application version.
 func (a *App) GetVersion() string {
 	return "0.1.0"
+}
+
+// --- Node state (read-only for frontend) ---
+
+// GetNodeSnapshot returns the current node state for the frontend.
+func (a *App) GetNodeSnapshot() map[string]interface{} {
+	snap := a.appState.GetNodeSnapshot()
+	return map[string]interface{}{
+		"status":       snap.Status,
+		"height":       snap.Height,
+		"targetHeight": snap.TargetHeight,
+		"proxyTarget":  snap.ProxyTarget,
+		"currentWork":  snap.CurrentWork,
+	}
+}
+
+// --- Dashboard data ---
+
+// GetBalance fetches the BZE balance for the active account via the local proxy.
+func (a *App) GetBalance() (map[string]interface{}, error) {
+	address := a.appState.GetActiveAddress()
+	if address == "" {
+		return map[string]interface{}{"amount": "0", "denom": "ubze"}, nil
+	}
+
+	proxyREST := fmt.Sprintf("http://localhost:%d", a.settings.ProxyRESTPort)
+	url := fmt.Sprintf("%s/cosmos/bank/v1beta1/balances/%s/by_denom?denom=ubze", proxyREST, address)
+
+	resp, err := a.httpGet(url)
+	if err != nil {
+		return nil, fmt.Errorf("balance query failed: %w", err)
+	}
+	return resp, nil
+}
+
+// GetArticles fetches the latest CoinTrunk articles via the local proxy,
+// enriched with publisher names.
+func (a *App) GetArticles(limit int) ([]map[string]interface{}, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 25
+	}
+
+	proxyREST := fmt.Sprintf("http://localhost:%d", a.settings.ProxyRESTPort)
+
+	// Fetch publishers to build address → name map
+	publisherMap := a.getPublisherNames(proxyREST)
+
+	// Fetch articles
+	articlesURL := fmt.Sprintf("%s/bze/cointrunk/all_articles?pagination.limit=%d&pagination.reverse=true", proxyREST, limit)
+	resp, err := a.httpGet(articlesURL)
+	if err != nil {
+		return nil, fmt.Errorf("articles query failed: %w", err)
+	}
+
+	articles, ok := resp["article"].([]interface{})
+	if !ok {
+		return []map[string]interface{}{}, nil
+	}
+
+	result := make([]map[string]interface{}, 0, len(articles))
+	for _, article := range articles {
+		if m, ok := article.(map[string]interface{}); ok {
+			// Enrich with publisher name
+			if addr, ok := m["publisher"].(string); ok {
+				if name, exists := publisherMap[addr]; exists {
+					m["publisherName"] = name
+				} else {
+					m["publisherName"] = truncateAddress(addr)
+				}
+			}
+			result = append(result, m)
+		}
+	}
+	return result, nil
+}
+
+// getPublisherNames fetches all publishers and returns an address → name map.
+func (a *App) getPublisherNames(proxyREST string) map[string]string {
+	result := make(map[string]string)
+	url := fmt.Sprintf("%s/bze/cointrunk/publishers?pagination.limit=100", proxyREST)
+	resp, err := a.httpGet(url)
+	if err != nil {
+		return result
+	}
+	publishers, ok := resp["publisher"].([]interface{})
+	if !ok {
+		return result
+	}
+	for _, p := range publishers {
+		if m, ok := p.(map[string]interface{}); ok {
+			addr, _ := m["address"].(string)
+			name, _ := m["name"].(string)
+			if addr != "" && name != "" {
+				result[addr] = name
+			}
+		}
+	}
+	return result
+}
+
+func truncateAddress(addr string) string {
+	if len(addr) > 16 {
+		return addr[:8] + "..." + addr[len(addr)-4:]
+	}
+	return addr
+}
+
+// OpenURL opens a URL in the system browser.
+func (a *App) OpenURL(url string) {
+	wailsRuntime.BrowserOpenURL(a.ctx, url)
+}
+
+// httpGet is a helper that fetches JSON from a URL and returns it as a map.
+func (a *App) httpGet(url string) (map[string]interface{}, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // --- Helpers ---
