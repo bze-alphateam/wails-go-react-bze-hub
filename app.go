@@ -40,6 +40,10 @@ type App struct {
 	// Temporary state for mnemonic verification during wizard
 	pendingMnemonic     string
 	verificationIndices []int
+
+	// Price cache
+	cachedBzePrice  float64
+	cachedPriceTime time.Time
 }
 
 // NewApp creates a new App application struct.
@@ -422,6 +426,69 @@ func (a *App) GetBalance() (map[string]interface{}, error) {
 		return nil, fmt.Errorf("balance query failed: %w", err)
 	}
 	return resp, nil
+}
+
+// GetBzePrice returns the current BZE price in USD, cached for 5 minutes.
+func (a *App) GetBzePrice() (float64, error) {
+	if time.Since(a.cachedPriceTime) < 5*time.Minute && a.cachedBzePrice > 0 {
+		return a.cachedBzePrice, nil
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get("https://api.coingecko.com/api/v3/simple/price?ids=bzedge&vs_currencies=usd")
+	if err != nil {
+		if a.cachedBzePrice > 0 {
+			return a.cachedBzePrice, nil // Return stale cache on error
+		}
+		return 0, fmt.Errorf("price fetch failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result map[string]map[string]float64
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		if a.cachedBzePrice > 0 {
+			return a.cachedBzePrice, nil
+		}
+		return 0, fmt.Errorf("price parse failed: %w", err)
+	}
+
+	if bze, ok := result["bzedge"]; ok {
+		if usd, ok := bze["usd"]; ok {
+			a.cachedBzePrice = usd
+			a.cachedPriceTime = time.Now()
+			return usd, nil
+		}
+	}
+
+	if a.cachedBzePrice > 0 {
+		return a.cachedBzePrice, nil
+	}
+	return 0, fmt.Errorf("price not found in response")
+}
+
+// GetAllBalances fetches the BZE balance for all accounts via the local proxy.
+func (a *App) GetAllBalances() ([]map[string]interface{}, error) {
+	proxyREST := fmt.Sprintf("http://localhost:%d", a.settings.ProxyRESTPort)
+	var results []map[string]interface{}
+
+	for _, acc := range a.store.Accounts {
+		url := fmt.Sprintf("%s/cosmos/bank/v1beta1/balances/%s/by_denom?denom=ubze", proxyREST, acc.Bech32Address)
+		resp, err := a.httpGet(url)
+		amount := "0"
+		if err == nil {
+			if bal, ok := resp["balance"].(map[string]interface{}); ok {
+				if a, ok := bal["amount"].(string); ok {
+					amount = a
+				}
+			}
+		}
+		results = append(results, map[string]interface{}{
+			"address": acc.Bech32Address,
+			"label":   acc.Label,
+			"amount":  amount,
+		})
+	}
+	return results, nil
 }
 
 // GetArticles fetches the latest CoinTrunk articles via the local proxy,

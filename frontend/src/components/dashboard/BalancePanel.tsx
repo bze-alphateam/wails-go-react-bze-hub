@@ -5,14 +5,16 @@ import {
 import {
   LuRefreshCw, LuGlobe, LuBookOpen, LuMessageCircle, LuNewspaper,
   LuHandshake, LuWrench, LuChartColumn, LuFlame, LuLock, LuExternalLink,
+  LuInfo,
 } from "react-icons/lu";
-import { GetBalance, OpenURL } from "../../../wailsjs/go/main/App";
+import { GetAllBalances, GetBzePrice, OpenURL } from "../../../wailsjs/go/main/App";
 
 interface Props {
   address: string;
   label: string;
   proxyTarget: string;
   onNavigate: (tabId: string) => void;
+  onShowAbout: () => void;
 }
 
 function formatBze(ubzeAmount: string): string {
@@ -111,36 +113,57 @@ function ExternalLinkCard({ item }: { item: ExternalLink }) {
   );
 }
 
-export function BalancePanel({ address, label, proxyTarget, onNavigate }: Props) {
-  const [balance, setBalance] = useState("0");
+interface WalletBalance {
+  address: string;
+  label: string;
+  amount: string;
+}
+
+export function BalancePanel({ address, label, proxyTarget, onNavigate, onShowAbout }: Props) {
+  const [balances, setBalances] = useState<WalletBalance[]>([]);
+  const [bzePrice, setBzePrice] = useState(0);
   const [loading, setLoading] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetchBalance = async () => {
+  const fetchBalances = async () => {
     if (!address) return;
     setLoading(true);
     try {
-      const resp = await GetBalance();
-      const bal = resp?.balance as any;
-      if (bal?.amount) {
-        setBalance(bal.amount);
-      }
+      const result = await GetAllBalances();
+      setBalances(result as WalletBalance[] || []);
     } catch (e) {
       console.error("balance fetch:", e);
-    } finally {
-      setLoading(false);
     }
+    try {
+      const price = await GetBzePrice();
+      setBzePrice(price);
+    } catch (e) {
+      console.error("price fetch:", e);
+    }
+    setLoading(false);
   };
 
   useEffect(() => {
-    fetchBalance();
+    fetchBalances();
     if (intervalRef.current) clearInterval(intervalRef.current);
     const interval = proxyTarget === "local" ? 10_000 : 30_000;
-    intervalRef.current = setInterval(fetchBalance, interval);
+    intervalRef.current = setInterval(fetchBalances, interval);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [address, proxyTarget]);
+
+  const activeBalance = balances.find((b) => b.address === address);
+  const otherBalances = balances.filter((b) => b.address !== address);
+  const otherTotal = otherBalances.reduce((sum, b) => sum + BigInt(b.amount || "0"), BigInt(0));
+
+  const toUsd = (ubzeAmount: string): string => {
+    if (bzePrice <= 0) return "";
+    const bze = Number(BigInt(ubzeAmount || "0")) / 1_000_000;
+    const usd = bze * bzePrice;
+    const decimals = usd < 1 ? 6 : 2;
+    return usd.toLocaleString(undefined, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: decimals });
+  };
 
   return (
     <VStack align="stretch" gap="8">
@@ -148,13 +171,13 @@ export function BalancePanel({ address, label, proxyTarget, onNavigate }: Props)
       <Box>
         <HStack justify="space-between" mb="2">
           <Text fontSize="sm" fontWeight="semibold" color="fg.muted">
-            Balance
+            {label}
           </Text>
           <IconButton
             aria-label="Refresh balance"
             size="2xs"
             variant="ghost"
-            onClick={fetchBalance}
+            onClick={fetchBalances}
             disabled={loading}
           >
             {LuRefreshCw({}) as React.ReactNode}
@@ -163,14 +186,23 @@ export function BalancePanel({ address, label, proxyTarget, onNavigate }: Props)
 
         <HStack align="baseline" gap="2">
           <Heading size="3xl" fontWeight="bold">
-            {formatBze(balance)}
+            {formatBze(activeBalance?.amount || "0")}
           </Heading>
           <Text fontSize="lg" color="fg.muted">BZE</Text>
         </HStack>
 
-        <Text fontSize="xs" color="fg.muted" mt="1" fontFamily="mono">
-          {address}
-        </Text>
+        {bzePrice > 0 && (
+          <Text fontSize="sm" color="fg.muted" mt="0.5">
+            {toUsd(activeBalance?.amount || "0")}
+          </Text>
+        )}
+
+        {otherBalances.length > 0 && otherTotal > BigInt(0) && (
+          <Text fontSize="xs" color="fg.muted" mt="1">
+            In other wallets: {formatBze(otherTotal.toString())} BZE
+            {bzePrice > 0 && ` (${toUsd(otherTotal.toString())})`}
+          </Text>
+        )}
       </Box>
 
       {/* Hub Pages */}
@@ -183,6 +215,28 @@ export function BalancePanel({ address, label, proxyTarget, onNavigate }: Props)
             <HubPageCard key={page.tabId} item={page} onClick={() => onNavigate(page.tabId)} />
           ))}
         </SimpleGrid>
+
+        {/* About Hub */}
+        <Box
+          mt="3"
+          px="4"
+          py="3"
+          borderWidth="1px"
+          borderColor="border"
+          borderRadius="lg"
+          cursor="pointer"
+          _hover={{ bg: "bg.subtle", borderColor: "teal.500" }}
+          transition="all 0.15s"
+          onClick={onShowAbout}
+        >
+          <HStack gap="3">
+            <Box color="teal.500" flexShrink={0}>{LuInfo({}) as React.ReactNode}</Box>
+            <Box>
+              <Text fontSize="sm" fontWeight="semibold">About BZE Hub</Text>
+              <Text fontSize="xs" color="fg.muted">Learn how the Hub works</Text>
+            </Box>
+          </HStack>
+        </Box>
       </Box>
 
       {/* Official Links */}
