@@ -1,7 +1,6 @@
 package wallet
 
 import (
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -56,8 +55,8 @@ func SignAmino(privKeyHex string, signDocJSON string) (*AminoSignResponse, error
 		return nil, fmt.Errorf("failed to sort sign doc: %w", err)
 	}
 
-	hash := sha256.Sum256(sortedBytes)
-	sig, err := privKey.Sign(hash[:])
+	// Note: cosmos-sdk's secp256k1.Sign() internally does SHA256, so pass raw bytes
+	sig, err := privKey.Sign(sortedBytes)
 	if err != nil {
 		return nil, fmt.Errorf("signing failed: %w", err)
 	}
@@ -89,8 +88,8 @@ func SignDirect(privKeyHex string, signDocBytes []byte) (*DirectSignResponse, er
 	privKey := &secp256k1.PrivKey{Key: pkBytes}
 	defer crypto.SecureZero(privKey.Key)
 
-	hash := sha256.Sum256(signDocBytes)
-	sig, err := privKey.Sign(hash[:])
+	// Note: cosmos-sdk's secp256k1.Sign() internally does SHA256, so pass raw bytes
+	sig, err := privKey.Sign(signDocBytes)
 	if err != nil {
 		return nil, fmt.Errorf("signing failed: %w", err)
 	}

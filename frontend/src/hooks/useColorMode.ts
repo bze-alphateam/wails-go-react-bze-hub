@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { notifyThemeChanged } from "./useBridgeHandler";
 
 export type ColorMode = "light" | "dark";
 
@@ -28,6 +29,8 @@ export function useColorMode() {
   const setColorMode = (mode: ColorMode) => {
     localStorage.setItem(STORAGE_KEY, mode);
     setColorModeState(mode);
+    // Sync to dApp iframes
+    notifyThemeChanged(mode);
   };
 
   const toggleColorMode = () => {

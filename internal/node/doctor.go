@@ -35,6 +35,9 @@ func NewDoctor(appState *state.AppState, nodeProcess *NodeProcess, retryDelaysSe
 // Watch waits for the node to exit and attempts recovery.
 // Run this in a goroutine via RoutineManager. It blocks until ctx is cancelled.
 func (d *Doctor) Watch(ctx context.Context) {
+	logging.Info("doctor", "watch started (retry delays: %v)", d.retryDelays)
+	defer logging.Info("doctor", "watch stopped")
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -42,8 +45,12 @@ func (d *Doctor) Watch(ctx context.Context) {
 		default:
 		}
 
+		// Record heartbeat so watchdog knows we're alive
+		d.appState.RecordDoctorHeartbeat()
+		logging.Debug("doctor", "tick (node running: %v)", d.nodeProcess.IsRunning())
+
 		if !d.nodeProcess.IsRunning() {
-			// Node isn't running — wait a bit and check again
+			logging.Debug("doctor", "node not running, waiting 2s...")
 			select {
 			case <-ctx.Done():
 				return
@@ -52,6 +59,7 @@ func (d *Doctor) Watch(ctx context.Context) {
 			}
 		}
 
+		logging.Debug("doctor", "watching node process (PID active)...")
 		// Wait for the node process to exit
 		err := d.nodeProcess.WaitForExit()
 

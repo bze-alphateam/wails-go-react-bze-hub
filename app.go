@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
+	secp256k1Lib "github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+
 	"github.com/bze-alphateam/bze-hub/internal/config"
 	"github.com/bze-alphateam/bze-hub/internal/logging"
 	"github.com/bze-alphateam/bze-hub/internal/node"
@@ -144,14 +146,14 @@ func (a *App) startProxies(publicREST, publicRPC string) {
 
 	restProxy, err := proxy.NewEndpointProxy("REST", proxyCfg.LocalRESTAddr, proxyCfg.PublicRESTAddr, a.appState, proxyCfg)
 	if err != nil {
-		fmt.Printf("[app] ERROR: failed to create REST proxy: %v\n", err)
+		logging.Error("app", "failed to create REST proxy: %v", err)
 		return
 	}
 	a.restProxy = restProxy
 
 	rpcProxy, err := proxy.NewEndpointProxy("RPC", proxyCfg.LocalRPCAddr, proxyCfg.PublicRPCAddr, a.appState, proxyCfg)
 	if err != nil {
-		fmt.Printf("[app] ERROR: failed to create RPC proxy: %v\n", err)
+		logging.Error("app", "failed to create RPC proxy: %v", err)
 		return
 	}
 	a.rpcProxy = rpcProxy
@@ -159,18 +161,18 @@ func (a *App) startProxies(publicREST, publicRPC string) {
 	// Start REST proxy in background
 	a.routines.Go("rest-proxy", func(ctx context.Context) {
 		if err := a.restProxy.Start(proxyCfg.RESTPort); err != nil {
-			fmt.Printf("[app] ERROR: REST proxy failed: %v\n", err)
+			logging.Error("app", "REST proxy failed: %v", err)
 		}
 	})
 
 	// Start RPC proxy in background
 	a.routines.Go("rpc-proxy", func(ctx context.Context) {
 		if err := a.rpcProxy.Start(proxyCfg.RPCPort); err != nil {
-			fmt.Printf("[app] ERROR: RPC proxy failed: %v\n", err)
+			logging.Error("app", "RPC proxy failed: %v", err)
 		}
 	})
 
-	fmt.Printf("[app] proxies started (REST :%d, RPC :%d) → node (REST :%d, RPC :%d)\n",
+	logging.Info("app", "proxies started (REST :%d, RPC :%d) → node (REST :%d, RPC :%d)",
 		a.ports.ProxyREST, a.ports.ProxyRPC, a.ports.NodeREST, a.ports.NodeRPC)
 }
 
@@ -364,6 +366,9 @@ func (a *App) setupNode(ctx context.Context) {
 	}
 	a.healthMonitor = node.NewHealthMonitor(a.appState, a.nodeProcess, healthCfg, cfg, ports, func() {
 		a.performResync()
+	}, func() {
+		logging.Info("app", "health watchdog: stuck on public for 10+ minutes — force re-init")
+		a.ForceReInitNode()
 	})
 	a.routines.Go("health-fast", a.healthMonitor.FastLoop)
 	a.routines.Go("health-slow", a.healthMonitor.SlowLoop)
@@ -447,10 +452,10 @@ func (a *App) downloadBinary(cfg *node.RemoteConfig) error {
 	a.appState.SetCurrentWork("Resolving node binary...")
 	downloadURL, checksum, err := node.ResolveBinaryURL(cfg)
 	if err != nil {
-		fmt.Printf("[app] ERROR: failed to resolve binary URL: %v\n", err)
+		logging.Error("app", "failed to resolve binary URL: %v", err)
 		return err
 	}
-	fmt.Printf("[app] binary URL resolved: %s\n", downloadURL)
+	logging.Info("app", "binary URL resolved: %s", downloadURL)
 
 	a.appState.SetCurrentWork("Downloading BZE node...")
 	err = node.DownloadBinary(downloadURL, checksum, func(downloaded, total int64) {
@@ -463,18 +468,18 @@ func (a *App) downloadBinary(cfg *node.RemoteConfig) error {
 		}
 	})
 	if err != nil {
-		fmt.Printf("[app] ERROR: binary download failed: %v\n", err)
+		logging.Error("app", "binary download failed: %v", err)
 		return err
 	}
 
-	fmt.Println("[app] node binary downloaded successfully")
+	logging.Info("app", "node binary downloaded successfully")
 	return nil
 }
 
 // startProxiesUsingExisting configures proxies to use an existing instance's ports.
 // This instance doesn't start its own proxy servers — it connects to the existing ones.
 func (a *App) startProxiesUsingExisting() {
-	fmt.Printf("[app] connecting to existing proxies (REST :%d, RPC :%d)\n",
+	logging.Info("app", "connecting to existing proxies (REST :%d, RPC :%d)",
 		a.ports.ProxyREST, a.ports.ProxyRPC)
 	// The frontend's balance/article fetches use GetBalance/GetArticles which call
 	// through the proxy. We just need to tell them which port to use.
@@ -692,6 +697,167 @@ func (a *App) Unlock(password string) error {
 	return nil
 }
 
+// --- Keplr Bridge (called by frontend postMessage handler) ---
+
+// KeplrEnable verifies the chain ID is supported.
+func (a *App) KeplrEnable(chainId string) error {
+	if a.remoteConfig != nil && chainId != a.remoteConfig.ChainID {
+		return fmt.Errorf("unsupported chain: %s (expected %s)", chainId, a.remoteConfig.ChainID)
+	}
+	logging.Debug("bridge", "enable(%s) — ok", chainId)
+	return nil
+}
+
+// KeplrGetKey returns the active account's key info for the Keplr bridge.
+func (a *App) KeplrGetKey(chainId string) (map[string]interface{}, error) {
+	active := a.store.ActiveAddress
+	if active == "" {
+		return nil, fmt.Errorf("no active account")
+	}
+
+	var acc *config.Account
+	for i := range a.store.Accounts {
+		if a.store.Accounts[i].Bech32Address == active {
+			acc = &a.store.Accounts[i]
+			break
+		}
+	}
+	if acc == nil {
+		return nil, fmt.Errorf("active account not found")
+	}
+
+	// Decode pubkey hex to bytes
+	pubKeyBytes, err := hexDecodeString(acc.PubKeyHex)
+	if err != nil {
+		return nil, fmt.Errorf("invalid pubkey: %w", err)
+	}
+
+	// Get raw address bytes from pubkey (20-byte hash)
+	pubKey := &secp256k1Lib.PubKey{Key: pubKeyBytes}
+	addrBytes := pubKey.Address().Bytes()
+
+	logging.Debug("bridge", "getKey(%s) → %s (%s)", chainId, acc.Label, acc.Bech32Address)
+
+	// Convert []byte to []int so Wails sends JS arrays (not base64 strings)
+	// The hub-connector wraps these with new Uint8Array()
+	pubKeyArr := make([]int, len(pubKeyBytes))
+	for i, b := range pubKeyBytes {
+		pubKeyArr[i] = int(b)
+	}
+	addrArr := make([]int, len(addrBytes))
+	for i, b := range addrBytes {
+		addrArr[i] = int(b)
+	}
+
+	return map[string]interface{}{
+		"name":          acc.Label,
+		"algo":          "secp256k1",
+		"pubKey":        pubKeyArr,
+		"address":       addrArr,
+		"bech32Address": acc.Bech32Address,
+		"isNanoLedger":  false,
+		"isKeystone":    false,
+	}, nil
+}
+
+// KeplrSignAmino signs an amino transaction. Returns the signed response.
+func (a *App) KeplrSignAmino(chainId string, signer string, signDocJSON string) (map[string]interface{}, error) {
+	logging.Info("bridge", "signAmino request from %s for signer %s", chainId, signer)
+
+	password := a.password
+	resp, err := a.wallet.SignAminoTx(signer, password, signDocJSON)
+	if err != nil {
+		logging.Error("bridge", "signAmino failed: %v", err)
+		return nil, fmt.Errorf("signing failed: %w", err)
+	}
+
+	logging.Info("bridge", "signAmino success for %s", signer)
+
+	respBytes, err := json.Marshal(resp)
+	if err != nil {
+		return nil, fmt.Errorf("marshal response: %w", err)
+	}
+	var result map[string]interface{}
+	if err := json.Unmarshal(respBytes, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal response: %w", err)
+	}
+	return result, nil
+}
+
+// KeplrSignDirect signs a direct (protobuf) transaction. Returns the signed response.
+func (a *App) KeplrSignDirect(chainId string, signer string, signDocJSON string) (map[string]interface{}, error) {
+	logging.Info("bridge", "signDirect request from %s for signer %s", chainId, signer)
+
+	password := a.password
+	resp, err := a.wallet.SignDirectTx(signer, password, []byte(signDocJSON))
+	if err != nil {
+		logging.Error("bridge", "signDirect failed: %v", err)
+		return nil, fmt.Errorf("signing failed: %w", err)
+	}
+
+	logging.Info("bridge", "signDirect success for %s", signer)
+
+	respBytes, _ := json.Marshal(resp)
+	var result map[string]interface{}
+	json.Unmarshal(respBytes, &result)
+	return result, nil
+}
+
+// KeplrSuggestChain intercepts experimentalSuggestChain and overrides endpoints with proxy.
+func (a *App) KeplrSuggestChain(chainInfoJSON string) error {
+	logging.Debug("bridge", "suggestChain intercepted — endpoints forced to proxy")
+	// We don't need to do anything — the connector already writes proxy endpoints to localStorage
+	return nil
+}
+
+// KeplrSignArbitrary signs arbitrary data (ADR-036).
+func (a *App) KeplrSignArbitrary(chainId string, signer string, data string) (map[string]interface{}, error) {
+	logging.Info("bridge", "signArbitrary request for %s", signer)
+	// TODO: implement ADR-036 signing
+	return nil, fmt.Errorf("signArbitrary not yet implemented")
+}
+
+// GetHandshakeConfig returns the config sent to hub-connector during handshake.
+func (a *App) GetHandshakeConfig() map[string]interface{} {
+	chainId := "beezee-1"
+	if a.remoteConfig != nil {
+		chainId = a.remoteConfig.ChainID
+	}
+
+	return map[string]interface{}{
+		"chainId":           chainId,
+		"storageKeyVersion": "1",
+		"proxyRest":         a.ports.ProxyREST,
+		"proxyRpc":          a.ports.ProxyRPC,
+		"activeAddress":     a.store.ActiveAddress,
+		"activeLabel":       a.appState.GetActiveAddress(),
+	}
+}
+
+// --- Helpers for Keplr bridge ---
+
+func hexDecodeString(s string) ([]byte, error) {
+	b := make([]byte, len(s)/2)
+	for i := 0; i < len(s); i += 2 {
+		var val byte
+		for j := 0; j < 2; j++ {
+			c := s[i+j]
+			switch {
+			case c >= '0' && c <= '9':
+				val = val*16 + (c - '0')
+			case c >= 'a' && c <= 'f':
+				val = val*16 + (c - 'a' + 10)
+			case c >= 'A' && c <= 'F':
+				val = val*16 + (c - 'A' + 10)
+			default:
+				return nil, fmt.Errorf("invalid hex char: %c", c)
+			}
+		}
+		b[i/2] = val
+	}
+	return b, nil
+}
+
 // --- Settings ---
 
 // GetSettings returns current app settings.
@@ -821,16 +987,19 @@ func (a *App) ForceReInitNode() error {
 		return fmt.Errorf("please wait %d seconds before trying again", int(remaining.Seconds()))
 	}
 
-	// Guard: don't re-init if already in progress
+	// Guard: don't re-init if already in progress — but check the AGE of the status.
+	// If something has been "in progress" for too long, it's probably stuck.
 	currentWork := a.appState.GetCurrentWork()
-	if currentWork != "" {
-		logging.Info("app", "force re-init ignored — setup already in progress")
+	workAge := a.appState.CurrentWorkAge()
+	if currentWork != "" && workAge < 10*time.Minute {
+		logging.Info("app", "force re-init ignored — setup in progress ('%s', age: %.0fs)", currentWork, workAge.Seconds())
 		return fmt.Errorf("setup already in progress")
 	}
 
 	currentStatus := a.appState.GetNodeStatus()
-	if currentStatus == state.NodeResyncing || currentStatus == state.NodeStarting {
-		logging.Info("app", "force re-init ignored — node is busy (%s)", currentStatus)
+	statusAge := a.appState.NodeStatusAge()
+	if (currentStatus == state.NodeResyncing || currentStatus == state.NodeStarting) && statusAge < 10*time.Minute {
+		logging.Info("app", "force re-init ignored — node is busy (%s, age: %.0fs)", currentStatus, statusAge.Seconds())
 		return fmt.Errorf("node is busy")
 	}
 

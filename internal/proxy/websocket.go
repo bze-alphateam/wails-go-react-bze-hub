@@ -1,11 +1,11 @@
 package proxy
 
 import (
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
 
+	"github.com/bze-alphateam/bze-hub/internal/logging"
 	"github.com/bze-alphateam/bze-hub/internal/state"
 	"github.com/gorilla/websocket"
 )
@@ -55,19 +55,20 @@ func (wsp *WebSocketProxy) Handle(w http.ResponseWriter, r *http.Request) {
 		targetAddr = wsp.publicWSAddr + r.URL.Path
 	}
 
-	fmt.Printf("[proxy] WebSocket connecting to %s\n", targetAddr)
+	logging.Debug("proxy", "WebSocket connecting to %s (local: %v)", targetAddr, useLocal)
 
 	// Connect to target
 	targetConn, _, err := websocket.DefaultDialer.Dial(targetAddr, nil)
 	if err != nil {
-		fmt.Printf("[proxy] WebSocket target connect failed: %v\n", err)
+		logging.Error("proxy", "WebSocket target connect failed (%s): %v", targetAddr, err)
 		if useLocal {
 			// Try public as fallback
 			wsp.cb.recordFailure(true)
 			targetAddr = wsp.publicWSAddr + r.URL.Path
-			fmt.Printf("[proxy] WebSocket falling back to %s\n", targetAddr)
+			logging.Info("proxy", "WebSocket falling back to public: %s", targetAddr)
 			targetConn, _, err = websocket.DefaultDialer.Dial(targetAddr, nil)
 			if err != nil {
+				logging.Error("proxy", "WebSocket both targets failed: %v", err)
 				http.Error(w, "WebSocket proxy: both targets failed", http.StatusBadGateway)
 				return
 			}
@@ -81,10 +82,12 @@ func (wsp *WebSocketProxy) Handle(w http.ResponseWriter, r *http.Request) {
 	// Upgrade client connection
 	clientConn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		fmt.Printf("[proxy] WebSocket upgrade failed: %v\n", err)
+		logging.Error("proxy", "WebSocket upgrade failed: %v", err)
 		return
 	}
 	defer clientConn.Close()
+
+	logging.Debug("proxy", "WebSocket pipe established → %s", targetAddr)
 
 	// Bidirectional pipe
 	done := make(chan struct{}, 2)
@@ -96,7 +99,7 @@ func (wsp *WebSocketProxy) Handle(w http.ResponseWriter, r *http.Request) {
 			msgType, msg, err := clientConn.ReadMessage()
 			if err != nil {
 				if !isWSCloseError(err) {
-					fmt.Printf("[proxy] WebSocket client read error: %v\n", err)
+					logging.Debug("proxy", "WebSocket client read error: %v", err)
 				}
 				return
 			}
@@ -113,7 +116,7 @@ func (wsp *WebSocketProxy) Handle(w http.ResponseWriter, r *http.Request) {
 			msgType, msg, err := targetConn.ReadMessage()
 			if err != nil {
 				if !isWSCloseError(err) {
-					fmt.Printf("[proxy] WebSocket target read error: %v\n", err)
+					logging.Debug("proxy", "WebSocket target read error: %v", err)
 				}
 				return
 			}
@@ -125,6 +128,7 @@ func (wsp *WebSocketProxy) Handle(w http.ResponseWriter, r *http.Request) {
 
 	// Wait for either side to close
 	<-done
+	logging.Debug("proxy", "WebSocket pipe closed (%s)", targetAddr)
 }
 
 func isWSCloseError(err error) bool {

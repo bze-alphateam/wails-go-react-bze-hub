@@ -2,9 +2,10 @@ package routines
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
+
+	"github.com/bze-alphateam/bze-hub/internal/logging"
 )
 
 // Manager tracks all background goroutines and provides graceful shutdown.
@@ -36,16 +37,16 @@ func (m *Manager) Go(name string, fn func(ctx context.Context)) {
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
-		fmt.Printf("[routines] started: %s\n", name)
+		logging.Info("routines", "started: %s", name)
 		fn(m.ctx)
-		fmt.Printf("[routines] stopped: %s\n", name)
+		logging.Info("routines", "stopped: %s", name)
 	}()
 }
 
 // Shutdown signals all goroutines to stop and waits up to timeout for them to finish.
 // Returns true if all goroutines stopped cleanly, false if timed out.
 func (m *Manager) Shutdown(timeout time.Duration) bool {
-	fmt.Println("[routines] shutdown initiated")
+	logging.Info("routines", "shutdown initiated")
 	m.cancel()
 
 	done := make(chan struct{})
@@ -56,10 +57,10 @@ func (m *Manager) Shutdown(timeout time.Duration) bool {
 
 	select {
 	case <-done:
-		fmt.Println("[routines] all goroutines stopped cleanly")
+		logging.Info("routines", "all goroutines stopped cleanly")
 		return true
 	case <-time.After(timeout):
-		fmt.Println("[routines] shutdown timed out — some goroutines may still be running")
+		logging.Error("routines", "shutdown timed out — some goroutines may still be running")
 		return false
 	}
 }

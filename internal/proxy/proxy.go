@@ -87,8 +87,13 @@ func (cb *circuitBreaker) recordFailure(unrecoverable bool) {
 
 func (cb *circuitBreaker) recordSuccess() {
 	cb.mu.Lock()
-	defer cb.mu.Unlock()
+	wasTripped := cb.failCount >= cb.threshold
 	cb.failCount = 0
+	cb.mu.Unlock()
+
+	if wasTripped {
+		logging.Info("proxy", "circuit breaker recovered — local node healthy again")
+	}
 }
 
 // isUnrecoverable returns true for errors that mean the local node is definitely down.
@@ -149,6 +154,11 @@ func (p *EndpointProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	useLocal := p.appState.GetNodeStatus() == state.NodeSynced && p.cb.isLocalSafe()
+
+	// Log broadcast requests
+	if r.Method == "POST" && (r.URL.Path == "/cosmos/tx/v1beta1/txs" || r.URL.Path == "/") {
+		logging.Debug("proxy", "%s BROADCAST %s %s", p.label, r.Method, r.URL.Path)
+	}
 
 	if useLocal {
 		logging.Debug("proxy", "%s %s %s → local (%s)", p.label, r.Method, r.URL.Path, p.localURL.Host)

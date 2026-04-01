@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bze-alphateam/bze-hub/internal/config"
+	"github.com/bze-alphateam/bze-hub/internal/logging"
 )
 
 const binaryName = "bzed"
@@ -49,7 +50,7 @@ func ResolveBinaryURL(cfg *RemoteConfig) (downloadURL string, checksum string, e
 	}
 
 	// 2. Fallback: GitHub releases API
-	fmt.Printf("[node] no binary in config for %s/%s, checking GitHub releases for %s\n", goos, goarch, cfg.BinaryRepo)
+	logging.Info("node", "no binary in config for %s/%s, checking GitHub releases for %s", goos, goarch, cfg.BinaryRepo)
 	return resolveFromGitHub(cfg.BinaryRepo, goos, goarch)
 }
 
@@ -133,7 +134,7 @@ func DownloadBinary(downloadURL, expectedChecksum string, onProgress func(downlo
 		if actualChecksum != expectedChecksum {
 			return fmt.Errorf("checksum mismatch: expected %s, got %s", expectedChecksum, actualChecksum)
 		}
-		fmt.Println("[node] binary checksum verified")
+		logging.Info("node", "binary checksum verified")
 	}
 
 	// Move to final location
@@ -148,7 +149,7 @@ func DownloadBinary(downloadURL, expectedChecksum string, onProgress func(downlo
 		}
 	}
 
-	fmt.Printf("[node] binary saved to %s\n", destPath)
+	logging.Info("node", "binary saved to %s", destPath)
 	return nil
 }
 
@@ -199,7 +200,7 @@ func resolveFromGitHub(repo, goos, goarch string) (downloadURL, checksum string,
 			if isArchive(name) {
 				continue
 			}
-			fmt.Printf("[node] found binary in GitHub release %s: %s\n", release.TagName, name)
+			logging.Info("node", "found binary in GitHub release %s: %s", release.TagName, name)
 			return asset.BrowserDownloadURL, "", nil
 		}
 	}
@@ -210,7 +211,7 @@ func resolveFromGitHub(repo, goos, goarch string) (downloadURL, checksum string,
 			continue
 		}
 		if strings.Contains(asset.Name, goos) && strings.Contains(asset.Name, goarch) {
-			fmt.Printf("[node] found binary by pattern in GitHub release %s: %s\n", release.TagName, asset.Name)
+			logging.Info("node", "found binary by pattern in GitHub release %s: %s", release.TagName, asset.Name)
 			return asset.BrowserDownloadURL, "", nil
 		}
 	}

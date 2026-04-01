@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/bze-alphateam/bze-hub/internal/config"
+	"github.com/bze-alphateam/bze-hub/internal/logging"
 )
 
 // NodeHome returns the path to the node's home directory.
@@ -35,27 +36,27 @@ func InitNode(cfg *RemoteConfig, ports PortSet) error {
 
 	// 1. Run bzed init (creates directory structure + crypto keys)
 	if !IsNodeInitialized() {
-		fmt.Println("[node] running bzed init...")
+		logging.Info("node", "running bzed init...")
 		cmd := exec.Command(binary, "init", "bze-hub", "--chain-id", cfg.ChainID, "--home", home)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("bzed init failed: %w\noutput: %s", err, string(output))
 		}
-		fmt.Println("[node] bzed init completed")
+		logging.Info("node", "bzed init completed")
 	}
 
 	// 2. Download and replace config files
-	fmt.Println("[node] downloading genesis...")
+	logging.Info("node", "downloading genesis...")
 	if err := downloadFile(cfg.GenesisURL, filepath.Join(home, "config", "genesis.json")); err != nil {
 		return fmt.Errorf("download genesis: %w", err)
 	}
 
-	fmt.Println("[node] downloading config.toml...")
+	logging.Info("node", "downloading config.toml...")
 	if err := downloadFile(cfg.ConfigTomlURL, filepath.Join(home, "config", "config.toml")); err != nil {
 		return fmt.Errorf("download config.toml: %w", err)
 	}
 
-	fmt.Println("[node] downloading app.toml...")
+	logging.Info("node", "downloading app.toml...")
 	if err := downloadFile(cfg.AppTomlURL, filepath.Join(home, "config", "app.toml")); err != nil {
 		return fmt.Errorf("download app.toml: %w", err)
 	}
@@ -72,7 +73,7 @@ func InitNode(cfg *RemoteConfig, ports PortSet) error {
 		return fmt.Errorf("post-process app.toml: %w", err)
 	}
 
-	fmt.Println("[node] initialization complete")
+	logging.Info("node", "initialization complete")
 	return nil
 }
 
@@ -81,7 +82,7 @@ func InitNode(cfg *RemoteConfig, ports PortSet) error {
 func ReInitConfigs(cfg *RemoteConfig, ports PortSet) error {
 	home := NodeHome()
 
-	fmt.Println("[node] re-downloading config files...")
+	logging.Info("node", "re-downloading config files...")
 	if err := downloadFile(cfg.ConfigTomlURL, filepath.Join(home, "config", "config.toml")); err != nil {
 		return fmt.Errorf("download config.toml: %w", err)
 	}
@@ -114,7 +115,7 @@ func postProcessConfig(configPath string, cfg *RemoteConfig, ports PortSet) erro
 	// Set moniker
 	moniker := GenerateMoniker()
 	content = replaceTOMLValue(content, "moniker", fmt.Sprintf(`"%s"`, moniker))
-	fmt.Printf("[node] moniker: %s\n", moniker)
+	logging.Info("node", "moniker: %s", moniker)
 
 	// Set node ports
 	// P2P listen address
@@ -158,7 +159,7 @@ func configureStateSyncInContent(content string, cfg *RemoteConfig) string {
 	// Fetch trust height and hash
 	trustHeight, trustHash, err := fetchTrustHeightAndHash(cfg)
 	if err != nil {
-		fmt.Printf("[node] WARNING: failed to fetch trust height/hash: %v\n", err)
+		logging.Error("node", "failed to fetch trust height/hash: %v", err)
 		return content
 	}
 
@@ -166,7 +167,7 @@ func configureStateSyncInContent(content string, cfg *RemoteConfig) string {
 	content = replaceTOMLSectionValue(content, "[statesync]", "trust_hash", fmt.Sprintf(`"%s"`, trustHash))
 	content = replaceTOMLSectionValue(content, "[statesync]", "trust_period", `"168h0m0s"`)
 
-	fmt.Printf("[node] state sync configured: trust_height=%d, trust_hash=%s\n", trustHeight, trustHash[:16]+"...")
+	logging.Info("node", "state sync configured: trust_height=%d, trust_hash=%s", trustHeight, trustHash[:16]+"...")
 	return content
 }
 

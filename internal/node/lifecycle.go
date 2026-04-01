@@ -139,9 +139,11 @@ func (np *NodeProcess) IsRunning() bool {
 
 // Restart stops and starts the node.
 func (np *NodeProcess) Restart() error {
+	logging.Info("node", "restarting node...")
 	if err := np.Stop(); err != nil {
 		return fmt.Errorf("stop failed: %w", err)
 	}
+	logging.Debug("node", "waiting 2s before restart...")
 	time.Sleep(2 * time.Second) // Brief pause between stop and start
 	return np.Start()
 }
@@ -152,13 +154,13 @@ func UnsafeResetAll() error {
 	binary := BinaryPath()
 	home := NodeHome()
 
-	fmt.Println("[node] running unsafe-reset-all...")
+	logging.Info("node", "running unsafe-reset-all...")
 	cmd := exec.Command(binary, "tendermint", "unsafe-reset-all", "--home", home, "--keep-addr-book")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("unsafe-reset-all failed: %w\noutput: %s", err, string(output))
 	}
-	fmt.Println("[node] unsafe-reset-all completed")
+	logging.Info("node", "unsafe-reset-all completed")
 	return nil
 }
 
@@ -192,12 +194,12 @@ func CleanupOrphanNode() int {
 	}
 
 	if !IsProcessAlive(pid) {
-		fmt.Printf("[node] stale PID file (PID %d dead), removing\n", pid)
+		logging.Debug("node", "stale PID file (PID %d dead), removing", pid)
 		os.Remove(pidFilePath())
 		return 0
 	}
 
-	fmt.Printf("[node] found running node process (PID %d) from previous session\n", pid)
+	logging.Info("node", "found running node process (PID %d) from previous session", pid)
 	return pid
 }
 
@@ -221,7 +223,7 @@ func KillNodeByPIDFile() {
 
 // KillOrphanNode kills a node process by PID.
 func KillOrphanNode(pid int) {
-	fmt.Printf("[node] killing orphan node process (PID %d)\n", pid)
+	logging.Info("node", "killing orphan node process (PID %d)", pid)
 	process, err := os.FindProcess(pid)
 	if err == nil {
 		if runtime.GOOS != "windows" {

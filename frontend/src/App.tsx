@@ -7,6 +7,8 @@ import { DAppFrame } from "./components/DAppFrame";
 import { Wizard } from "./components/wizard/Wizard";
 import { IsFirstRun, GetAccounts, GetNodeSnapshot } from "../wailsjs/go/main/App";
 import { EventsOn } from "../wailsjs/runtime/runtime";
+import { useBridgeHandler, notifyAccountChanged } from "./hooks/useBridgeHandler";
+import { ApprovalDialog, type SignApprovalRequest } from "./components/ApprovalDialog";
 
 type AppView = "loading" | "wizard" | "main" | "shutdown";
 
@@ -27,6 +29,15 @@ function App() {
   const [mountedTabs, setMountedTabs] = useState<Set<string>>(new Set());
   // Increment to force iframe reload
   const [refreshKey, setRefreshKey] = useState(0);
+  // Approval dialog state
+  const [approvalRequest, setApprovalRequest] = useState<SignApprovalRequest | null>(null);
+
+  // Bridge handler — listens for postMessage from hub-connector in iframes
+  useBridgeHandler({
+    onSignRequest: (request) => {
+      setApprovalRequest(request);
+    },
+  });
 
   useEffect(() => {
     checkFirstRun();
@@ -102,6 +113,8 @@ function App() {
         const active = accounts.find((a: any) => a.bech32Address === data.activeAddress);
         setActiveLabel(active?.label || "");
       }
+      // Notify dApp iframes about the account change
+      notifyAccountChanged();
     } catch (e) {
       console.error("load accounts failed:", e);
     }
@@ -177,6 +190,19 @@ function App() {
       </Box>
 
       <StatusBar />
+
+      {/* Signing approval dialog — rendered above everything including iframes */}
+      {approvalRequest && (
+        <ApprovalDialog
+          request={{
+            ...approvalRequest,
+            resolve: (approved) => {
+              approvalRequest.resolve(approved);
+              setApprovalRequest(null);
+            },
+          }}
+        />
+      )}
     </Flex>
   );
 }

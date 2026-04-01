@@ -18,6 +18,15 @@ interface Article {
 
 const DEFAULT_THUMBNAIL = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' fill='%23718096'%3E%3Crect width='60' height='60' rx='8' fill='%23E2E8F0'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.35em' font-size='12' fill='%23718096'%3EBZE%3C/text%3E%3C/svg%3E";
 
+function freshnessBadge(unixStr: string): { label: string; color: string; bg: string; darkColor: string; darkBg: string } | null {
+  const ts = parseInt(unixStr, 10);
+  if (isNaN(ts) || ts === 0) return null;
+  const diff = Math.floor(Date.now() / 1000 - ts);
+  if (diff < 7200) return { label: "New", color: "green.800", bg: "green.200", darkColor: "green.200", darkBg: "green.800" };
+  if (diff < 86400) return { label: "Today", color: "blue.800", bg: "blue.200", darkColor: "blue.200", darkBg: "blue.800" };
+  return null;
+}
+
 function timeAgo(unixStr: string): string {
   const ts = parseInt(unixStr, 10);
   if (isNaN(ts) || ts === 0) return "";
@@ -177,6 +186,24 @@ export function ArticleList() {
               <Text fontSize="sm" fontWeight="medium" lineClamp={2} flex="1">
                 {article.title}
               </Text>
+              {(() => {
+                const badge = freshnessBadge(article.created_at);
+                return badge ? (
+                  <Text
+                    fontSize="2xs"
+                    color={badge.color}
+                    fontWeight="semibold"
+                    flexShrink={0}
+                    px="1.5"
+                    py="0.5"
+                    bg={badge.bg}
+                    borderRadius="sm"
+                    _dark={{ color: badge.darkColor, bg: badge.darkBg }}
+                  >
+                    {badge.label}
+                  </Text>
+                ) : null;
+              })()}
               {article.paid && (
                 <Text
                   fontSize="2xs"

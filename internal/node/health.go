@@ -39,6 +39,11 @@ type HealthMonitor struct {
 
 	// For re-sync callback
 	onResyncNeeded func()
+	// For force re-init callback (stalled on public too long)
+	onForceReInit func()
+
+	// Tracks how long we've been on public endpoints
+	publicSince time.Time
 }
 
 // NewHealthMonitor creates a health monitor.
@@ -49,6 +54,7 @@ func NewHealthMonitor(
 	remoteCfg *RemoteConfig,
 	ports PortSet,
 	onResyncNeeded func(),
+	onForceReInit func(),
 ) *HealthMonitor {
 	return &HealthMonitor{
 		appState:       appState,
@@ -56,6 +62,8 @@ func NewHealthMonitor(
 		cfg:            cfg,
 		remoteCfg:      remoteCfg,
 		ports:          ports,
+		onForceReInit:  onForceReInit,
+		publicSince:    time.Now(),
 		onResyncNeeded: onResyncNeeded,
 	}
 }
@@ -68,14 +76,17 @@ func (hm *HealthMonitor) FastLoop(ctx context.Context) {
 		interval = 5 * time.Second
 	}
 
+	logging.Info("health", "fast loop started (interval: %s)", interval)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
+			logging.Info("health", "fast loop stopped")
 			return
 		case <-ticker.C:
+			hm.appState.RecordHealthFastHeartbeat()
 			hm.fastCheck()
 		}
 	}
@@ -89,12 +100,14 @@ func (hm *HealthMonitor) SlowLoop(ctx context.Context) {
 		interval = time.Hour
 	}
 
+	logging.Info("health", "slow loop started (interval: %s)", interval)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
+			logging.Info("health", "slow loop stopped")
 			return
 		case <-ticker.C:
 			hm.slowCheck()
@@ -105,29 +118,37 @@ func (hm *HealthMonitor) SlowLoop(ctx context.Context) {
 // --- Fast check (every 5s) ---
 
 func (hm *HealthMonitor) fastCheck() {
+	logging.Debug("health", "fast check tick (proxy: %s, status: %s)", hm.appState.GetProxyTarget(), hm.appState.GetNodeStatus())
+
 	if !hm.nodeProcess.IsRunning() {
 		// Even if our process tracker says not running, try polling anyway
 		// The node might be running from a previous session
 		status, err := hm.pollLocalStatus()
 		if err != nil {
+			logging.Debug("health", "fast check: node not running and not reachable")
 			return // Truly not running
 		}
 		// Node is responding even though we don't track the process — update state
+		logging.Debug("health", "fast check: node responding without tracked process (height: %d, catching_up: %v)", status.LatestBlockHeight, status.CatchingUp)
 		hm.updateFromStatus(status)
 		return
 	}
 
 	status, err := hm.pollLocalStatus()
 	if err != nil {
+		logging.Debug("health", "fast check: node running but not reachable: %v", err)
 		// Node not reachable — might be starting up
 		currentState := hm.appState.GetNodeStatus()
 		if currentState != state.NodeStopped && currentState != state.NodeResyncing && currentState != state.NodeStarting {
 			hm.appState.SetNodeStatus(state.NodeError)
 			hm.appState.SetProxyTarget("public")
+			hm.checkPublicStallWatchdog()
 		}
 		return
 	}
 
+	logging.Debug("health", "fast check: height=%d catching_up=%v block_age=%.1fs",
+		status.LatestBlockHeight, status.CatchingUp, time.Since(status.LatestBlockTime).Seconds())
 	hm.updateFromStatus(status)
 }
 
@@ -143,6 +164,7 @@ func (hm *HealthMonitor) updateFromStatus(status *LocalNodeStatus) {
 		}
 		hm.appState.SetNodeStatus(state.NodeSyncing)
 		hm.appState.SetProxyTarget("public")
+		hm.checkPublicStallWatchdog()
 		return
 	}
 
@@ -160,6 +182,7 @@ func (hm *HealthMonitor) updateFromStatus(status *LocalNodeStatus) {
 		}
 		hm.appState.SetNodeStatus(state.NodeSyncing)
 		hm.appState.SetProxyTarget("public")
+		hm.checkPublicStallWatchdog()
 		return
 	}
 
@@ -170,9 +193,86 @@ func (hm *HealthMonitor) updateFromStatus(status *LocalNodeStatus) {
 	}
 	hm.appState.SetNodeStatus(state.NodeSynced)
 	hm.appState.SetProxyTarget("local")
+	// Reset public watchdog — we're on local now
+	hm.publicSince = time.Time{}
 	// Clear any lingering "Node syncing..." work text
 	if hm.appState.GetCurrentWork() != "" {
 		hm.appState.SetCurrentWork("")
+	}
+}
+
+const (
+	publicStallTimeout   = 10 * time.Minute
+	statusStallTimeout   = 10 * time.Minute
+	heartbeatDeadTimeout = 3 * time.Minute  // If a routine hasn't heartbeated in 3x the fast interval
+	workStallTimeout     = 10 * time.Minute // If currentWork hasn't changed in 10 min
+)
+
+// checkPublicStallWatchdog is the top-level safety net.
+// It assumes everything can fail and checks multiple signals:
+// 1. Have we been on public endpoints too long?
+// 2. Has the node status been stuck for too long?
+// 3. Has currentWork been stuck (download/init stalled)?
+// 4. Are the doctor/health routines still alive (heartbeats)?
+func (hm *HealthMonitor) checkPublicStallWatchdog() {
+	if hm.publicSince.IsZero() {
+		hm.publicSince = time.Now()
+	}
+
+	// Don't trigger if already resyncing or reinitializing
+	currentState := hm.appState.GetNodeStatus()
+	if currentState == state.NodeResyncing || currentState == state.NodeStopped {
+		return
+	}
+
+	// Check if currentWork is stuck (e.g., "Downloading..." for 10+ minutes)
+	workAge := hm.appState.CurrentWorkAge()
+	if workAge > workStallTimeout {
+		logging.Info("watchdog", "currentWork stuck for %.0f min ('%s') — triggering force re-init",
+			workAge.Minutes(), hm.appState.GetCurrentWork())
+		hm.triggerForceReInit()
+		return
+	}
+
+	// Don't check further if there's active work happening
+	if hm.appState.GetCurrentWork() != "" {
+		return
+	}
+
+	// Check if node status hasn't changed for too long while not synced
+	statusAge := hm.appState.NodeStatusAge()
+	if currentState != state.NodeSynced && statusAge > statusStallTimeout {
+		logging.Info("watchdog", "node stuck in '%s' for %.0f min — triggering force re-init",
+			currentState, statusAge.Minutes())
+		hm.triggerForceReInit()
+		return
+	}
+
+	// Check if we've been on public endpoints too long
+	stalled := time.Since(hm.publicSince)
+	if stalled > publicStallTimeout {
+		logging.Info("watchdog", "stuck on public endpoints for %.0f min — triggering force re-init", stalled.Minutes())
+		hm.triggerForceReInit()
+		return
+	}
+
+	// Check doctor heartbeat — is the doctor routine alive?
+	doctorAge := hm.appState.DoctorHeartbeatAge()
+	if doctorAge > heartbeatDeadTimeout {
+		logging.Info("watchdog", "doctor heartbeat stale (%.0fs ago) — routines may be dead, triggering force re-init",
+			doctorAge.Seconds())
+		hm.triggerForceReInit()
+		return
+	}
+
+	logging.Debug("watchdog", "checks OK: public=%.0fs, status=%s (%.0fs), doctor heartbeat=%.0fs ago",
+		stalled.Seconds(), currentState, statusAge.Seconds(), doctorAge.Seconds())
+}
+
+func (hm *HealthMonitor) triggerForceReInit() {
+	hm.publicSince = time.Now() // Reset to avoid rapid re-triggers
+	if hm.onForceReInit != nil {
+		hm.onForceReInit()
 	}
 }
 

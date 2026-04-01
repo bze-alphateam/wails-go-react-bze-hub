@@ -14,7 +14,7 @@ type AppSettings struct {
 	AutoStartNode    bool   `json:"autoStartNode"`    // Default: true
 	AutoCheckUpdates bool   `json:"autoCheckUpdates"` // Default: true
 	Theme            string `json:"theme"`            // "light" or "dark"
-	LogLevel         string `json:"logLevel"`         // "error" (default), "info", "debug"
+	LogLevel         string `json:"logLevel"`         // "info" (default), "error", "debug"
 	DeveloperMode    bool   `json:"developerMode"`    // Default: false
 
 	// Developer mode — Node & Sync
@@ -44,7 +44,7 @@ func DefaultSettings() AppSettings {
 		AutoStartNode:             true,
 		AutoCheckUpdates:          true,
 		Theme:                     "light",
-		LogLevel:                  "error",
+		LogLevel:                  "info",
 		DeveloperMode:             false,
 		ResyncBlockThreshold:      28800,
 		MaxBlockAgeSec:            18,

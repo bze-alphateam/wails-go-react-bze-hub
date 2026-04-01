@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/bze-alphateam/bze-hub/internal/config"
+	"github.com/bze-alphateam/bze-hub/internal/logging"
 )
 
 // RemoteConfig holds the configuration fetched from the remote config.json URL.
@@ -32,21 +33,23 @@ const cachedConfigFilename = "remote-config.json"
 // FetchRemoteConfig downloads the config from the given URL and caches it locally.
 // If the fetch fails, it falls back to the cached version.
 func FetchRemoteConfig(configURL string) (*RemoteConfig, error) {
+	logging.Debug("node", "fetching remote config from %s", configURL)
 	cfg, err := fetchFromURL(configURL)
 	if err != nil {
-		fmt.Printf("[node] remote config fetch failed (%v), trying cached version\n", err)
+		logging.Error("node", "remote config fetch failed (%v), trying cached version", err)
 		cached, cacheErr := LoadCachedConfig()
 		if cacheErr != nil {
 			return nil, fmt.Errorf("remote config fetch failed and no cache available: %w", err)
 		}
-		fmt.Println("[node] using cached remote config")
+		logging.Info("node", "using cached remote config")
 		return cached, nil
 	}
 
 	// Cache the fetched config
 	if err := cacheConfig(cfg); err != nil {
-		fmt.Printf("[node] warning: failed to cache remote config: %v\n", err)
+		logging.Error("node", "failed to cache remote config: %v", err)
 	}
+	logging.Debug("node", "remote config fetched (chain: %s, version: %s)", cfg.ChainID, cfg.Version)
 
 	return cfg, nil
 }

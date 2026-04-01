@@ -106,10 +106,10 @@ func NodeWriter(isStderr bool) io.Writer {
 
 func log(level Level, tag, msg string, args ...interface{}) {
 	if global == nil {
-		// Fallback to stdout if logger not initialized
+		// Fallback to stderr if logger not initialized
 		prefix := levelStr(level)
 		formatted := fmt.Sprintf(msg, args...)
-		fmt.Printf("%s [%s] %s\n", prefix, tag, formatted)
+		fmt.Fprintf(os.Stderr, "%s [%s] %s\n", prefix, tag, formatted)
 		return
 	}
 
@@ -134,8 +134,8 @@ func log(level Level, tag, msg string, args ...interface{}) {
 
 	global.file.WriteString(line)
 
-	// Also print to stdout for development
-	fmt.Print(line)
+	// Also print to stderr for wails dev console (stdout may be captured by Wails)
+	fmt.Fprint(os.Stderr, line)
 }
 
 func (l *Logger) rotateIfNeeded() {
