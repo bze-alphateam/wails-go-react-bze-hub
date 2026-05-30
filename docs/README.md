@@ -1,6 +1,8 @@
 # BZE Hub
 
-A cross-platform desktop application for the BeeZee (BZE) blockchain ecosystem. BZE Hub bundles a local node, embedded wallet, and dApp browser shell into a single native application.
+A cross-platform desktop application for the BeeZee (BZE) blockchain ecosystem. BZE Hub bundles a local node, an embedded wallet, and native BZE dApp interfaces into a single native application.
+
+> **Direction note:** BZE Hub originally embedded the live web dApps (dex/burner/staking) in iframes and bridged them to the wallet via a Keplr-compatible `window.keplr` (the `@bze/hub-connector` package). **That approach has been dropped.** All dApp functionality is being reimplemented **natively** in the desktop app — native React UI calling Go backend bindings directly. The native architecture is still being designed; sections below marked _TBD_ will be filled in as it lands.
 
 ## Architecture Overview
 
@@ -8,48 +10,45 @@ A cross-platform desktop application for the BeeZee (BZE) blockchain ecosystem. 
 +-----------------------------------------------------------+
 |                      BZE Hub (Wails v2)                   |
 |                                                           |
-|  +-------------------+  +------------------------------+ |
-|  |   React Shell     |  |       Go Backend             | |
-|  |                   |  |                               | |
-|  |  +-- Tab Bar --+  |  |  +-- Node Manager ----------+| |
-|  |  | DEX | Burn  |  |  |  | Download bzed binary      || |
-|  |  | Stake| Dash |  |  |  | Init, start, stop         || |
-|  |  +-----+------+  |  |  | State sync (every 48h)     || |
-|  |                   |  |  | Health monitoring           || |
-|  |  |  +- iframes ---+  |  |  +----------------------------+| |
-|  |  | dApp URLs   |<----->  +-- Wallet (Keyring) -------+| |
-|  |  | (live sites)|  |  |  | OS keyring (secrets)       || |
-|  |  +-------------+  |  |  | BIP44 derivation           || |
-|  |        ^           |  |  | Sign direct/amino          || |
-|  |        |           |  |  +----------------------------+| |
-|  |  @bze/hub-connector|  |                               | |
-|  |  (postMessage      |  |  +-- Bridge Handler ---------+| |
-|  |   to shell)        |  |  | Keplr-compatible API       || |
-|  +-------------------+  |  | Shell <-> Wails bindings    || |
-|                          |  | experimentalSuggestChain    || |
-|                          |  +----------------------------+| |
+|  +-------------------+   +-----------------------------+  |
+|  |   React UI        |   |        Go Backend           |  |
+|  |                   |   |                             |  |
+|  |  +-- Tab Bar --+  |   |  +-- Node Manager --------+ |  |
+|  |  | Dashboard   |  |   |  | Download bzed binary    | |  |
+|  |  | Staking     |  |<->|  | Init, start, stop       | |  |
+|  |  | (DEX/Burner |  |   |  | State sync (every 48h)  | |  |
+|  |  |  TBD native)|  |   |  | Health monitoring       | |  |
+|  |  +-------------+  |   |  +-------------------------+ |  |
+|  |                   |   |  +-- Wallet (Keyring) ----+ |  |
+|  |  Native pages     |   |  | OS keyring (secrets)    | |  |
+|  |  call Go via      |   |  | BIP44 derivation        | |  |
+|  |  Wails bindings   |   |  | Sign amino/direct       | |  |
+|  |  (no iframes,     |   |  +-------------------------+ |  |
+|  |   no bridge)      |   |  +-- Chain Client --------+ |  |
+|  +-------------------+   |  | gRPC/REST queries        ||  |
+|                          |  +-------------------------+ |  |
 +-----------------------------------------------------------+
-          |                           |
-          v                           v
-  +----------------+        +---------------------------+
-  | Live dApp URLs |        | Hub Proxy Servers         |
-  | dex.getbze.com |        | REST proxy :1418          |
-  | burner.getbze  |        | RPC proxy  :26658         |
-  | stake.getbze   |        |   |                       |
-  +----------------+        |   +-> Local Node :1317/657 |
-                             |   |   (when synced)       |
-                             |   +-> Public RPCs         |
-                             |       (fallback)          |
-                             +---------------------------+
+                                       |
+                                       v
+                          +---------------------------+
+                          | Hub Proxy Servers         |
+                          | REST proxy :1418          |
+                          | RPC proxy  :26658         |
+                          |   |                       |
+                          |   +-> Local Node :1317/657|
+                          |   |   (when synced)       |
+                          |   +-> Public RPCs         |
+                          |       (fallback)          |
+                          +---------------------------+
 ```
 
 ## Three Pillars
 
-1. **Local Node Manager** - Automatically downloads, configures, and runs a `bzed` node with aggressive pruning. State syncs every 48 hours to keep disk usage minimal. Two local proxy servers (REST `:1418`, RPC `:26658`) transparently route traffic to the local node when synced or public RPCs when not. dApps always connect to the proxy - failover is invisible.
+1. **Local Node Manager** - Automatically downloads, configures, and runs a `bzed` node with aggressive pruning. It re-state-syncs when the local store grows too large (disk) **or** when the node falls too far behind the network (staleness), keeping disk usage minimal and avoiding slow block-by-block catch-up. Two local proxy servers (REST `:1418`, RPC `:26658`) transparently route traffic to the local node when synced or public RPCs when not. Failover is invisible to the rest of the app.
 
 2. **Embedded Wallet** - Stores mnemonics and private keys in the OS keyring (macOS Keychain, Windows Credential Manager, Linux Secret Service). Supports multiple accounts with BIP44 derivation. All signing requires explicit user approval.
 
-3. **dApp Browser Shell** - Persistent React shell with tab bar, status bar, and approval dialog. BZE dApps (DEX, Burner, Staking) render in iframes from their live URLs. A dedicated `@bze/hub-connector` npm library creates a Keplr-compatible `window.keplr` via postMessage bridge. Any Cosmos dApp can add Hub support with one `npm install` and one line of code.
+3. **Native dApp Interfaces** - BZE dApp functionality is implemented natively in the React UI as first-class pages (Dashboard and Staking today; DEX and Burner planned). Pages call the Go backend through Wails bindings for queries and signing — no iframes, no browser extension, no postMessage bridge. _Native DEX/Burner design: TBD._
 
 ## Supported Platforms
 
@@ -66,11 +65,11 @@ A cross-platform desktop application for the BeeZee (BZE) blockchain ecosystem. 
 | Component | Technology |
 |-----------|-----------|
 | Backend   | Go 1.25, Wails v2 |
-| Frontend Shell | React 19, TypeScript |
+| Frontend  | React 19, TypeScript, Chakra UI (native UI) |
 | Node | `bzed` (Cosmos SDK v0.50) |
 | Wallet Crypto | cosmos-sdk/crypto, go-bip39 |
 | Keyring | OS-native via go-keyring |
-| dApp Rendering | iframes + @bze/hub-connector bridge |
+| dApp UI | Native React pages + Wails bindings |
 
 ## Prerequisites
 
@@ -101,7 +100,20 @@ On first launch, BZE Hub will:
 1. Download the latest `bzed` binary from GitHub releases
 2. Initialize a node home directory in your app data folder
 3. Begin state sync against public RPCs
-4. Display the dApp browser with public RPC fallback until the local node is synced
+4. Serve the native dApp UI with public RPC fallback until the local node is synced
+
+## Testing
+
+Tests are run through the root `Makefile` (single entrypoint, so we don't run `go`/`npm` by hand):
+
+```bash
+make test          # Go + frontend tests
+make test-go       # Go unit tests only (fast — use after each change)
+make test-go-race  # Go tests with the race detector
+make test-fe       # frontend tests (auto-skips until a "test" script exists in frontend/package.json)
+```
+
+Frontend tests aren't set up yet; `make test-fe` skips gracefully and will start running them automatically once a `test` script is added (Vitest is the planned framework for the Vite/React frontend).
 
 ## Documentation
 
@@ -111,19 +123,17 @@ On first launch, BZE Hub will:
 | [01-project-setup.md](01-project-setup.md) | Wails project structure, build system, data directories |
 | [02-node-manager.md](02-node-manager.md) | Node lifecycle, binary management, state sync, pruning |
 | [03-wallet.md](03-wallet.md) | Keyring, BIP44 derivation, account management, signing |
-| [04-ui-shell.md](04-ui-shell.md) | Single webview navigation, Keplr bridge injection, tab bar, endpoint routing |
 | [05-auto-updater.md](05-auto-updater.md) | Binary version checking, download, verification |
-| [06-security.md](06-security.md) | Approval flows, sandboxing, permission model |
+| [06-security.md](06-security.md) | Approval flows, permission model |
 | [07-configuration.md](07-configuration.md) | Dashboard UI, settings, network switching |
 | [08-build-distribution.md](08-build-distribution.md) | Cross-platform builds, CI/CD, packaging |
 
+_Native dApp UI design docs: TBD (to replace the removed iframe/bridge `04-ui-shell.md`)._
+
 ## Key Design Decisions
 
-- **Keplr-compatible bridge over custom connector**: Existing dApps already support Keplr. By mimicking its API, we avoid any dApp code changes.
-- **Persistent shell + iframes over single webview navigation**: React shell always rendered (tab bar, status bar, approval dialog). dApps in iframes with state preserved across tab switches. Bridge via `@bze/hub-connector` library.
-- **Dedicated connector library over bze-ui-kit changes**: `@bze/hub-connector` is a standalone package any Cosmos dApp can import. Not coupled to BZE's UI kit.
-- **Local proxy servers over direct endpoint switching**: Two Go reverse proxies (REST, RPC) that dApps always connect to. The proxy handles failover between local node and public endpoints per-request. dApps never need to know about endpoint changes.
-- **Live URLs over bundled UIs**: dApps update independently without desktop app releases. Always latest version.
+- **Native dApp UI over embedded web dApps**: dApp features are built natively in React against Go bindings, instead of embedding live web dApps in iframes. Full control over UX, no cross-origin/embedding constraints, no dependency on the web dApps' availability.
+- **Local proxy servers**: Two Go reverse proxies (REST, RPC) that the backend's chain queries connect to. The proxy handles failover between the local node and public endpoints per-request, so callers never need to know about endpoint changes.
 - **OS keyring over custom encryption**: Leverages platform security (Touch ID, Windows Hello, system password). No custom crypto.
 - **State sync over full sync**: Keeps disk usage under ~2GB vs 50GB+ for full history. Re-syncs every 48h to prevent state bloat.
-- **Thin UI, thick Go backend**: All business logic in Go. React is a pure presentation layer — renders state from Go events, forwards user actions to Go bindings. No HTTP calls, no state management, no secrets in the frontend.
+- **Thin UI, thick Go backend**: All business logic in Go. React is a presentation layer — it renders state from Go events and forwards user actions to Go bindings. No secrets in the frontend.

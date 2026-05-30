@@ -469,54 +469,28 @@ For each platform before release:
 - [ ] Node initializes and begins state sync
 - [ ] Wallet creation generates valid mnemonic and address
 - [ ] Mnemonic import works (test with known mnemonic)
-- [ ] Account switching reflects in all dApp tabs
-- [ ] DEX tab loads and recognizes the injected Keplr bridge
-- [ ] Burner tab loads and connects
-- [ ] Staking tab loads and connects
+- [ ] Account switching reflects in all native pages
+- [ ] Staking page loads and can sign via the Go wallet (Wails bindings)
+- [ ] Native DEX page loads (_TBD_ — native DEX is future work)
+- [ ] Native Burner page loads (_TBD_ — native Burner is future work)
 - [ ] Transaction signing shows approval dialog
 - [ ] Approving a transaction broadcasts successfully
-- [ ] Rejecting a transaction returns error to dApp gracefully
+- [ ] Rejecting a transaction returns an error to the page gracefully
 - [ ] Node status panel shows correct sync progress
-- [ ] Proxy failover works (stop local node, verify dApps continue working via public endpoints)
+- [ ] Proxy failover works (stop local node, verify native pages continue working via public endpoints)
 - [ ] Settings changes persist after app restart
 - [ ] Auto-updater detects test release
 - [ ] Update download and verification succeeds
 - [ ] App quits cleanly (node process stops, keys zeroed)
 
-### Integration Test for Keplr Bridge
+### Integration Test for Native Signing — _TBD_
 
-```typescript
-// test/bridge.test.ts
-describe("Keplr Bridge", () => {
-    test("enable returns without error for valid chain ID", async () => {
-        await window.keplr.enable("beezee-1");
-    });
-
-    test("getKey returns valid key structure", async () => {
-        const key = await window.keplr.getKey("beezee-1");
-        expect(key.bech32Address).toMatch(/^bze1/);
-        expect(key.algo).toBe("secp256k1");
-        expect(key.pubKey).toBeInstanceOf(Uint8Array);
-    });
-
-    test("signAmino returns valid signature", async () => {
-        const signer = await window.keplr.getOfflineSigner("beezee-1");
-        const accounts = await signer.getAccounts();
-        expect(accounts.length).toBeGreaterThan(0);
-
-        const signDoc = { /* minimal amino sign doc */ };
-        const result = await signer.signAmino(accounts[0].address, signDoc);
-        expect(result.signature).toBeDefined();
-    });
-});
-```
+Native signing tests (exercising the `SignAmino` Wails binding plus `BroadcastTx` / `GetAccountInfo` from a native page) are **_TBD_** — the native signing flow is not finalized yet.
 
 > **Open questions — Testing strategy** (to discuss before implementation):
-> - How to test the postMessage bridge protocol end-to-end (hub-connector <-> shell <-> Go)?
 > - How to test proxy failover reliably in CI (need to simulate node up/down)?
 > - Cross-platform keyring testing: how to test macOS Keychain access control in CI (runners may not have Touch ID)?
 > - How to test wallet signing without broadcasting real transactions (mock chain or testnet)?
-> - Should we have integration tests that spin up a real dApp in an iframe and verify the bridge works?
 > - Performance testing: how many concurrent proxy requests before degradation?
 > - How to test the first-launch wizard flow in an automated way (it's heavily interactive)?
 

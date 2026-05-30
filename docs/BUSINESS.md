@@ -2,7 +2,9 @@
 
 ## Product Vision
 
-**One-liner**: A self-contained desktop gateway to the BZE ecosystem that runs its own light node, manages keys locally, and renders all BZE dApps without a browser extension.
+**One-liner**: A self-contained desktop gateway to the BZE ecosystem that runs its own light node, manages keys locally, and provides native BZE dApp interfaces without a browser extension.
+
+> **Direction note:** dApp functionality is implemented **natively** in the desktop app. The earlier approach of embedding the live web dApps in iframes (with a Keplr-compatible bridge) has been dropped.
 
 ### Problem Statement
 
@@ -52,10 +54,10 @@ BZE Hub is a single desktop application that:
 - As a user, I want my node to state sync periodically (every 48 hours) to keep disk usage low, without me having to manage it
 - As a user, I want to see my node's sync progress and health status in a dashboard panel
 
-### dApp Browser
+### Native dApps
 - As a trader, I want to open the DEX in a tab and trade without installing any browser extension, using my BZE Hub wallet
 - As a staker, I want to see my delegations, claim rewards, and redelegate - all within BZE Hub
-- As a token burner, I want to access the Burner dApp with the same UX as the web version
+- As a token burner, I want to access the Burner functionality natively in the Hub
 - As a user, I want dApps to automatically use my local node when it's synced, and fall back to public RPCs when it's not
 
 ### Configuration
@@ -74,7 +76,7 @@ BZE Hub is a single desktop application that:
 | Setup | Install extension + configure chain | Download app + launch |
 | dApp access | Separate browser tabs | Integrated tabs |
 | Decentralization | Does not contribute | Every user runs a node |
-| Updates | Extension + dApp updates separately | dApps auto-update (live URLs) |
+| Updates | Extension + dApp updates separately | One app update covers dApps + node |
 
 **BZE Hub advantage**: More secure key storage, local node for sovereignty and network health, unified UX.
 
@@ -107,7 +109,7 @@ BZE Hub is a single desktop application that:
 2. **Security** - OS-native keyring is more secure than browser extension storage. Every transaction requires explicit approval.
 3. **Convenience** - One download, one app. No browser extensions, no CLI, no managing multiple tabs
 4. **Self-Sovereignty** - Once the local node is synced, users are fully independent from third-party RPC providers
-5. **Always Current** - dApps load from live URLs, so users always get the latest version without app updates
+5. **Unified & Self-Contained** - One app delivers wallet, node, and native dApps; a single update keeps everything in sync
 
 ## Success Metrics
 
@@ -129,10 +131,10 @@ BZE Hub is a public good for the BZE ecosystem. Potential sustainability models:
 ## Roadmap Phases
 
 ### Phase 1: Foundation (MVP)
-- Wails project setup, basic React shell
+- Wails project setup, basic React frontend
 - Wallet: create, import, switch accounts, sign transactions
 - Node manager: download binary, init, start with state sync
-- UI shell: iframe tabs for DEX, Burner, Staking with Keplr bridge
+- Native dApp UI: Dashboard and Staking pages (native DEX/Burner to follow)
 - Configuration dashboard with node status
 
 ### Phase 2: Polish

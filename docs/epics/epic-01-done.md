@@ -1,8 +1,10 @@
-# Epic 1 Complete: Wails Project Setup + React Shell Layout
+# Epic 1 Complete: Wails Project Setup + React Layout
+
+> **Historical record.** This documents Epic 1 as it shipped. Parts changed later in the native pivot: "shell" here means the app's own native layout (tab bar / content / status bar), not a web-dApp shell; the `ContentArea` placeholder was deleted; and the DEX/Burner tab buttons were removed (the planned Epic 4 iframe/bridge dApp approach was abandoned in favor of native dApp UI). See the Direction note in the docs README.
 
 ## What Was Done
 
-Initialized a Wails v2 desktop app with React 19 + Chakra UI v3, producing a working shell layout with tab bar, content area, and status bar.
+Initialized a Wails v2 desktop app with React 19 + Chakra UI v3, producing a working app layout with tab bar, content area, and status bar.
 
 ## Environment
 
@@ -52,7 +54,7 @@ PATH="/Users/stefan.balea/sdk/go1.25.3/bin:$PATH" ~/go/bin/wails dev
 
 4. **No `internal/` packages yet** — the Go backend has only the App struct with stubs. Packages for wallet, node, proxy, etc. come in Epic 2 and 3.
 
-5. **Tab state managed in React** — `activeTab` is local React state. In future epics, tab switching will trigger iframe show/hide. For now, only the button highlighting works.
+5. **Tab state managed in React** — `activeTab` is local React state. Tab switching shows/hides native dApp pages (the original plan to show/hide dApp iframes was dropped in the native pivot). At the time of Epic 1, only the button highlighting worked.
 
 ## How to Run
 
@@ -74,8 +76,8 @@ Implement the keyring and wallet functionality:
 - OS keyring integration (platform-adaptive: macOS Keychain vs password on Windows/Linux)
 - `internal/wallet/` package: BIP44 derivation, mnemonic management, PK storage, signing
 - `internal/config/` package: `accounts.json`, `settings.json`
-- First-run wizard in the React shell: generate mnemonic, confirm 4 words, trust device
+- First-run wizard in the React frontend: generate mnemonic, confirm 4 words, trust device
 - Import mnemonic and import PK flows
 - Account switching in the tab bar
 
-The Go backend's `App` struct will gain wallet-related bound methods. The React shell will add a Dashboard panel with wallet management UI.
+The Go backend's `App` struct will gain wallet-related bound methods. The React frontend will add a Dashboard panel with wallet management UI.

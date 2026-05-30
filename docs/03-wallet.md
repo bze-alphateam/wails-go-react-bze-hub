@@ -2,9 +2,11 @@
 
 OS keyring integration, BIP44 key derivation, account management, mnemonic lifecycle, import/export, and transaction signing.
 
+> **Direction note:** The iframe/`window.keplr` bridge approach has been dropped. dApp features are now built natively in the Hub UI, and native pages sign through Go bindings (Wails) — there is no Keplr bridge and no `@bze/hub-connector`. The wallet remains the key manager and signer; the binding once named `KeplrSignAmino` is now `SignAmino`.
+
 ## 1. Overview
 
-The Hub wallet is a **key manager and signer**. It does NOT replicate full wallet functionality — balances, transaction history, staking, trading, and all other wallet features are handled by the dApps (DEX, Burner, Staking) running in iframes.
+The Hub wallet is a **key manager and signer**. Features like balances, transaction history, staking, and trading are implemented natively in the Hub's own UI (Dashboard and Staking today; DEX and Burner are planned), not by embedded web dApps. The wallet itself stays focused on key management and signing.
 
 ### What the Hub Wallet Does
 
@@ -13,16 +15,16 @@ The Hub wallet is a **key manager and signer**. It does NOT replicate full walle
 - **Import private key** — standalone PK import for users who don't have a mnemonic
 - **BIP44 HD derivation** for generating addresses from any stored mnemonic
 - **Transaction signing** (SignDirect and SignAmino) with user approval — only fetches the PK needed for that signature
-- **Account switching** reflected across all dApp tabs instantly
+- **Account switching** reflected across all native pages instantly
 - **Export mnemonic** (reveal with auth, copy to clipboard)
 
 ### Purpose
 
 The app provides a better desktop solution for wallet management and navigating the BZE ecosystem, while lowering the load on public endpoints. Using local endpoints achieves higher speed.
 
-### What the dApps Handle
+### What the Native UI Handles
 
-Everything else:
+Everything else is implemented natively in the Hub's own pages (Dashboard and Staking today; the rest are planned, see _TBD_ for native DEX/Burner design):
 - Balances and token lists
 - Transaction history
 - Staking / delegation / rewards
@@ -304,7 +306,7 @@ In this example:
 - If this was the last account derived from a mnemonic, ask: "Also remove the mnemonic '{label}' from keyring?"
 - Cannot delete the last remaining account
 
-**Switch Active Account**: Update `activeAddress` in `accounts.json`. Emit `wallet:account-changed` Wails event. All dApp iframes receive `keplr_keystorechange`.
+**Switch Active Account**: Update `activeAddress` in `accounts.json`. Emit the `wallet:account-changed` Wails event. Native pages react to that event and reload their data for the new active account.
 
 ### What the UI Makes Clear
 
@@ -604,7 +606,7 @@ func (w *Wallet) ImportMnemonic(name, mnemonic string, startIndex uint32) error 
 
 ### SignAmino
 
-Used by the dApps (they configure `preferredSignType: () => 'amino'`).
+Used by native pages (e.g. native staking) via the `SignAmino` Wails binding, paired with `BroadcastTx` and `GetAccountInfo`.
 
 ```go
 type AminoSignDoc struct {
@@ -704,8 +706,9 @@ func (w *Wallet) RequestSign(method string, chainId string, signer string, signD
     summary := w.summarizeTransaction(signDoc)
 
     // 2. Emit approval request event to frontend
+    // (The native signing-approval event/dialog is _TBD_; see 06-security.md.)
     requestId := uuid.New().String()
-    runtime.EventsEmit(w.ctx, "bridge:sign-request", SignApprovalRequest{
+    runtime.EventsEmit(w.ctx, "wallet:sign-request", SignApprovalRequest{
         ID:       requestId,
         Method:   method, // "signAmino" or "signDirect"
         ChainID:  chainId,
@@ -734,39 +737,28 @@ func (w *Wallet) RequestSign(method string, chainId string, signer string, signD
 When the user switches the active account:
 
 1. Update `activeAddress` in accounts.json
-2. Emit `wallet:account-changed` Wails event to frontend
-3. Frontend dispatches `keplr_keystorechange` event to all dApp iframes
-4. Each dApp's `@interchain-kit` detects the event and refreshes the connected account
-5. dApp UIs update to show the new account's balances and data
+2. Emit the `wallet:account-changed` Wails event to the frontend
+3. Native pages listen for that event and re-query their data via the existing Wails bindings
+4. The UI updates to show the new account's balances and data
 
 ```typescript
-// In the bridge injection script (runs in each iframe)
-window.addEventListener("message", (event) => {
-    if (event.data.type === "bze-hub:account-changed") {
-        // Dispatch Keplr's standard event
-        window.dispatchEvent(new Event("keplr_keystorechange"));
-    }
+// Native pages subscribe to the Wails event and reload on change
+import { EventsOn } from '../wailsjs/runtime/runtime';
+
+EventsOn("wallet:account-changed", (address) => {
+    // Re-query balances, staking, etc. for the new active account
+    reloadPageData(address);
 });
 ```
 
-### Listing Accounts for Keplr Bridge
+### Getting the Active Account
 
-When a dApp calls `window.keplr.getKey(chainId)`, return the active account:
+Native pages read the active account directly through the existing accounts binding:
 
 ```go
-func (w *Wallet) KeplrGetKey(chainId string) (*KeplrKey, error) {
+func (w *Wallet) GetActiveAccount() (*Account, error) {
     active := w.getActiveAccount()
-    pubKeyBytes, _ := hex.DecodeString(active.PubKeyHex)
-
-    return &KeplrKey{
-        Name:           active.Name,
-        Algo:           "secp256k1",
-        PubKey:         pubKeyBytes,
-        Address:        sdk.AccAddress(pubKeyBytes).Bytes(), // Raw address bytes
-        Bech32Address:  active.Bech32Address,
-        IsNanoLedger:   false,
-        IsKeystone:     false,
-    }, nil
+    return active, nil
 }
 ```
 
@@ -776,5 +768,5 @@ func (w *Wallet) KeplrGetKey(chainId string) (*KeplrKey, error) {
 - In-memory keys are zeroed on wallet lock and app shutdown
 - Keyring access triggers OS-level authentication (Touch ID, Windows Hello, system password)
 - All signing operations require explicit user approval via the UI
-- The frontend (React shell) never has direct access to private keys - only the Go backend handles crypto
+- The React frontend never has direct access to private keys - only the Go backend handles crypto
 - Export operations require an additional confirmation step with clear warnings

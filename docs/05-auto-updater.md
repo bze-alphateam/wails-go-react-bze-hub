@@ -12,7 +12,7 @@ The auto-updater manages the `bzed` binary lifecycle:
 - **Replace** the old binary with rollback capability
 - **Detect** chain upgrades (governance-coordinated height-based upgrades)
 
-Important: the auto-updater manages the `bzed` node binary, not the desktop app itself. Since dApp UIs load from live URLs, the desktop app rarely needs updating. When it does, users download a new release manually or via platform package managers.
+Important: the auto-updater manages the `bzed` node binary, not the desktop app itself. The desktop app (which now ships the dApp UIs natively) is updated separately — users download a new release manually or via platform package managers. App self-update is future work (see 08-build-distribution.md).
 
 ## 2. Version Check Mechanism
 

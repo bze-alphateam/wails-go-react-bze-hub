@@ -2,6 +2,8 @@
 
 Wails v2 project scaffolding, directory structure, Go module configuration, platform-specific data paths, and development workflow.
 
+> **Direction note:** The original design embedded the live BZE web dApps inside iframes and bridged them to the Go wallet via a Keplr-compatible `window.keplr` (the `@bze/hub-connector` postMessage bridge). That approach has been dropped. All dApp functionality is being reimplemented natively: native React pages call the Go backend directly through Wails bindings. There are no iframes, no `window.keplr`, no postMessage bridge.
+
 ## 1. Wails v2 Project Initialization
 
 ### Prerequisites Check
@@ -55,7 +57,7 @@ bze-hub/
       installer/            # NSIS installer config
     linux/
       bze-hub.desktop       # Linux desktop entry
-  frontend/                 # React shell application
+  frontend/                 # React frontend application
     package.json
     tsconfig.json
     vite.config.ts
@@ -64,10 +66,8 @@ bze-hub/
       main.tsx              # React entry point
       App.tsx               # Root component (tab bar + content area)
       components/
-        TabBar.tsx           # Tab navigation (DEX, Burner, Stake, Dashboard)
-        DAppFrame.tsx        # iframe wrapper with loading/error states
+        TabBar.tsx           # Tab navigation (Dashboard, Staking)
         Dashboard.tsx        # Configuration dashboard (local component)
-        ApprovalDialog.tsx   # Transaction signing approval overlay
         StatusBar.tsx        # Node health, network, version info
         AccountSwitcher.tsx  # Account picker dropdown
       hooks/
@@ -89,10 +89,6 @@ bze-hub/
       accounts.go           # Account CRUD, active account switching
       derivation.go         # BIP44/BIP39 key derivation
       signer.go             # SignDirect and SignAmino implementations
-    bridge/
-      keplr.go              # Go-side Keplr API implementation (enable, getKey, sign)
-      messages.go           # Message type URL to human-readable mapping
-      approval.go           # Signing approval request/response management
     proxy/
       rest.go               # REST proxy (localhost:1418 -> local node or public REST)
       rpc.go                # RPC proxy (localhost:26658 -> local node or public RPC)
@@ -191,9 +187,9 @@ No platform-specific build tags needed for the core logic. The keyring library h
 
 ### Dependencies (package.json)
 
-The React shell is minimal. It does NOT import `@bze/bze-ui-kit` or `@interchain-kit` - those live inside the dApp iframes.
+The native React frontend implements the dApp UI itself — it no longer relies on embedded web dApps. Pages call the Go backend directly through Wails bindings. The choice of any client-side helper libraries for the native pages is _TBD_.
 
-Note: The `@bze/hub-connector` library is a separate package in the monorepo (not part of the shell). It's published to npm and imported by the dApps, not by the shell. See 04-ui-shell.md for details.
+Note: The `@bze/hub-connector` package (the old Keplr postMessage bridge) is obsolete. The native UI talks to the Go backend through Wails bindings, so no bridge connector is needed.
 
 ```json
 {
@@ -275,7 +271,7 @@ func AppDataDir() string {
     sync-state.json         # Last state sync timestamp and checkpoint
     permissions.json        # Third-party dApp permissions (future)
   logs/
-    app.log                 # Unified log (all components tagged: [node], [proxy], [wallet], [bridge], etc.)
+    app.log                 # Unified log (all components tagged: [node], [proxy], [wallet], etc.)
 ```
 
 ## 7. Main Entry Point (main.go)
@@ -326,7 +322,6 @@ import (
     "context"
     "github.com/bze-alphateam/bze-hub/internal/node"
     "github.com/bze-alphateam/bze-hub/internal/wallet"
-    "github.com/bze-alphateam/bze-hub/internal/bridge"
     "github.com/bze-alphateam/bze-hub/internal/config"
 )
 
@@ -334,7 +329,6 @@ type App struct {
     ctx         context.Context
     nodeManager *node.Manager
     wallet      *wallet.Wallet
-    bridge      *bridge.KeplrBridge
     settings    *config.Settings
 }
 
@@ -369,11 +363,8 @@ func (a *App) SetActiveAccount(address string) error { ... }
 func (a *App) CreateAccount(name string) (*wallet.Account, error) { ... }
 func (a *App) ImportMnemonic(name string, mnemonic string) (*wallet.Account, error) { ... }
 
-// Keplr bridge (called by postMessage handler in frontend)
-func (a *App) KeplrEnable(chainId string) error { ... }
-func (a *App) KeplrGetKey(chainId string) (*bridge.Key, error) { ... }
-func (a *App) KeplrSignAmino(chainId, signer string, signDoc string) (*bridge.SignResponse, error) { ... }
-func (a *App) KeplrSignDirect(chainId, signer string, signDoc string) (*bridge.SignResponse, error) { ... }
+// Signing (called directly by native pages, e.g. native staking)
+func (a *App) SignAmino(chainId, signer string, signDoc string) (*wallet.AminoSignResponse, error) { ... }
 
 // Settings
 func (a *App) GetSettings() (*config.AppSettings, error) { ... }
@@ -390,7 +381,7 @@ cd bze-hub
 wails dev
 ```
 
-This opens the app with browser DevTools available for debugging the React shell.
+This opens the app with browser DevTools available for debugging the React frontend.
 
 ### Testing
 
@@ -404,8 +395,8 @@ cd frontend && npm test
 # Manual testing checklist:
 # 1. App launches without errors
 # 2. Dashboard tab renders
-# 3. dApp iframes load (requires internet)
-# 4. Keplr bridge injection works (check browser console in iframe)
+# 3. Native dApp pages render and load their chain data
+# 4. Native pages can sign via the Go wallet (Wails bindings)
 # 5. Node download and init completes
 # 6. Wallet creation and signing flow works
 ```
@@ -430,7 +421,6 @@ Wails supports events for Go-to-frontend communication (push model):
 // Go side - emit events
 runtime.EventsEmit(a.ctx, "node:status-changed", status)
 runtime.EventsEmit(a.ctx, "wallet:account-changed", address)
-runtime.EventsEmit(a.ctx, "bridge:sign-request", request)
 ```
 
 ```typescript
@@ -441,9 +431,11 @@ EventsOn("node:status-changed", (status) => {
   setNodeStatus(status);
 });
 
-EventsOn("bridge:sign-request", (request) => {
-  showApprovalDialog(request);
+EventsOn("wallet:account-changed", (address) => {
+  // Native pages re-query their data for the new active account
 });
 ```
+
+The native signing-approval event and dialog are _TBD_ (the native approval flow is not finalized yet — see 06-security.md).
 
 This avoids polling for node status and enables real-time UI updates.

@@ -2,9 +2,11 @@
 
 Dashboard UI panels, settings persistence, network switching, app preferences, and export/import.
 
+> **Direction note:** dApps are no longer embedded as iframes bridged via `window.keplr`. Everything is native: the dashboard and dApp pages are React UI that call the Go backend through Wails bindings. The third-party app/permission model from the iframe era is obsolete; a native equivalent is _TBD_.
+
 ## 1. Overview
 
-The Configuration Dashboard is a built-in tab (not an iframe) rendered by the React shell. It provides:
+The Configuration Dashboard is a built-in tab rendered natively by the React frontend. It provides:
 
 - **Node Status** panel with controls and sync progress
 - **Wallet Management** panel for accounts, import/export
@@ -188,7 +190,7 @@ The MVP targets **mainnet only** (`beezee-1`). There is no network switching UI.
 Testnet support (switching between mainnet and testnet) is a **post-MVP feature**. When implemented, it would require:
 - Separate node home directories per network
 - Stopping/restarting the node with different config
-- Reloading all dApp iframes
+- Refreshing the native dApp pages' chain data
 - Updating the proxy targets
 - Separate genesis, peers, and state sync RPC servers
 
@@ -257,8 +259,10 @@ type AppSettings struct {
 
     // --- Developer mode settings (advanced) ---
     // Node & Sync
-    ResyncBlockThreshold int `json:"resyncBlockThreshold"` // Default: 28800 (~48h of blocks)
-    MaxBlockAgeSec       int `json:"maxBlockAgeSec"`       // Default: 18
+    ResyncBlockThreshold  int    `json:"resyncBlockThreshold"`  // Default: 28800 (~48h) — local-storage size resync trigger
+    MaxBlocksBehindResync int    `json:"maxBlocksBehindResync"` // Default: 14400 (~24h) — "too far behind network" resync trigger
+    MaxBlockAgeSec        int    `json:"maxBlockAgeSec"`        // Default: 18
+    NodeLogLevel          string `json:"nodeLogLevel"`          // Default: "info" — overrides bzed config.toml log_level ("" = leave as bze-configs sets it)
 
     // Proxy
     LocalNodeTimeoutMs       int `json:"localNodeTimeoutMs"`       // Default: 1500
@@ -292,7 +296,9 @@ func defaultSettings() AppSettings {
         LogLevel:                 "error",
         DeveloperMode:            false,
         ResyncBlockThreshold:     28800,
+        MaxBlocksBehindResync:    14400,
         MaxBlockAgeSec:           18,
+        NodeLogLevel:             "info",
         LocalNodeTimeoutMs:       1500,
         CircuitBreakerThreshold:  3,
         CircuitBreakerCooldownSec: 120,
@@ -332,7 +338,7 @@ func (s *Settings) Save() error {
 |---------|---------|-------------|
 | Auto-start node | `true` | Start the local node when the app launches |
 | Auto-check updates | `true` | Periodically check GitHub for new bzed releases |
-| Theme | `light` | UI theme for the dashboard shell |
+| Theme | `light` | UI theme for the app UI |
 | Log level | `error` | Logging verbosity (see Logging section below) |
 
 ### Developer Mode Settings
@@ -367,7 +373,7 @@ All other developer settings take effect immediately.
 |-------|-----------------|-------------|
 | `error` | Errors, panics, failed operations | Default. Normal usage. |
 | `info` | Above + node state changes, proxy routing decisions, account switches, signing requests (type only, no payloads) | Mild troubleshooting. |
-| `debug` | Above + full HTTP proxy request/response metadata (URLs, status codes, headers), Wails binding calls, bridge message types, keyring access attempts (success/fail, never contents) | Diagnosing specific issues. Ask users to enable this temporarily. |
+| `debug` | Above + full HTTP proxy request/response metadata (URLs, status codes, headers), Wails binding calls, keyring access attempts (success/fail, never contents) | Diagnosing specific issues. Ask users to enable this temporarily. |
 
 **What is NEVER logged at any level:**
 - Mnemonics or private keys
@@ -387,12 +393,12 @@ All components log to the same file with tags identifying the source:
 ```
 2026-03-29T14:32:15Z [ERROR] [node]    state sync failed: no peers available
 2026-03-29T14:32:16Z [INFO]  [proxy]   REST proxy routing to public endpoint
-2026-03-29T14:32:17Z [DEBUG] [bridge]  signAmino request from dex.getbze.com, type=/bze.tradebin.v1.MsgCreateOrder
+2026-03-29T14:32:17Z [DEBUG] [wallet]  signAmino request, type=/bze.tradebin.v1.MsgCreateOrder
 2026-03-29T14:32:18Z [INFO]  [wallet]  account switched to bze1abc...def
 2026-03-29T14:32:19Z [ERROR] [updater] checksum mismatch for bzed-darwin-arm64.tar.gz
 ```
 
-**Tags:** `[node]`, `[proxy]`, `[bridge]`, `[wallet]`, `[updater]`, `[config]`, `[app]`
+**Tags:** `[node]`, `[proxy]`, `[wallet]`, `[updater]`, `[config]`, `[app]`
 
 Node process stdout/stderr is also captured into `app.log` with the `[node]` tag rather than separate files. This gives a single unified timeline for debugging.
 
@@ -401,7 +407,7 @@ Node process stdout/stderr is also captured into `app.log` with the `[node]` tag
 **Support workflow**: When a user reports an issue:
 1. Ask them to set log level to `debug` in Settings
 2. Reproduce the issue
-3. They send `app.log` (single file has everything — node, proxy, wallet, bridge)
+3. They send `app.log` (single file has everything — node, proxy, wallet, updater)
 4. Remind them to set log level back to `error`
 
 Since `debug` never logs secrets, the log file is safe to share. But it may contain addresses and transaction type URLs, so users should be aware.
@@ -453,42 +459,21 @@ func Debug(msg string, args ...interface{}) {
 
 ## 7. Security Panel
 
-### Connected dApps
+### Connected dApps / Third-Party Permissions — _TBD_
 
-List dApps that have been granted permissions:
-
-```
-+---------------------------------------------------+
-|  Connected Applications                            |
-|                                                    |
-|  dex.getbze.com (built-in)                        |
-|    Permissions: connect, sign, suggestChain        |
-|    Connected since: 2026-03-01                     |
-|                                                    |
-|  burner.getbze.com (built-in)                     |
-|    Permissions: connect, sign, suggestChain        |
-|    Connected since: 2026-03-01                     |
-|                                                    |
-|  example-dapp.com                                  |
-|    Permissions: connect, sign                      |
-|    Connected since: 2026-03-25                     |
-|    [ Revoke Access ]                               |
-|                                                    |
-|  [ Revoke All Third-Party Access ]                 |
-+---------------------------------------------------+
-```
+The original permission model (per-origin `connect` / `sign` / `suggestChain` grants for embedded third-party dApps) belonged to the iframe/`window.keplr` era and is now obsolete. With native dApp pages there are no external origins to grant permissions to. A native third-party integration model is **_TBD_** (see EPIC-PLAN Epic 8). Built-in native pages (Dashboard, Staking) use the Go wallet directly; each signing action still requires explicit user approval.
 
 ### Transaction History (Future Enhancement)
 
 A log of recent signing requests and their outcomes:
 
 ```
-| Time | dApp | Action | Status |
-|------|------|--------|--------|
-| 14:32 | dex.getbze.com | Create DEX Order | Approved |
-| 14:28 | dex.getbze.com | Cancel DEX Order | Approved |
-| 14:15 | stake.getbze.com | Claim Rewards | Approved |
-| 14:10 | example.com | Send Tokens | Rejected |
+| Time | Action | Status |
+|------|--------|--------|
+| 14:32 | Create DEX Order | Approved |
+| 14:28 | Cancel DEX Order | Approved |
+| 14:15 | Claim Rewards | Approved |
+| 14:10 | Send Tokens | Rejected |
 ```
 
 ## 8. Export / Import App Data
@@ -819,7 +804,7 @@ After setup (and on every subsequent launch), the Dashboard shows available apps
 +-------------------------------------------------------------------+
 ```
 
-Clicking an app card opens it in a tab (iframe).
+Clicking an app card opens it as a native tab/page (no iframe). Staking is available natively today; native DEX and Burner pages are planned (_TBD_). The "Add App" third-party flow depends on the native third-party integration model, which is _TBD_.
 
 ### What Happens If User Finishes Wallet Before Node Download?
 

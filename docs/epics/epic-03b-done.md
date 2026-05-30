@@ -54,7 +54,7 @@ After downloading config.toml and app.toml from remote:
 
 1. Check existing instance (multi-instance support)
 2. Fetch remote config (cache locally)
-3. Download binary if missing (GitHub releases fallback when no binaries in config)
+3. Download binary if missing **or outdated** — desired version is the remote-config `binary_version` pin (preferred) or the latest GitHub release tag (fallback); installed version comes from `bzed version`. Recorded in `node-version.json`. (GitHub releases fallback for the asset URL when no `binaries` map in config.)
 4. Discover available ports
 5. Init node if not initialized (bzed init + download configs + post-process)
 6. Write instance.json

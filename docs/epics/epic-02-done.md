@@ -55,7 +55,7 @@ Implemented the full wallet backend and first-run wizard UI. The app can now cre
 | `Wizard.tsx` | State machine orchestrating all steps. Calls Go bindings. Handles loading/error states. |
 
 ### App.tsx
-Routes between three views: `loading` → `wizard` (if first run) → `main` (shell with tabs). Loads accounts and shows active wallet in tab bar.
+Routes between three views: `loading` → `wizard` (if first run) → `main` (the app layout with tabs). Loads accounts and shows active wallet in tab bar.
 
 ### TabBar.tsx
 Updated to show active account label + truncated address on the right side.

@@ -24,6 +24,7 @@ type RemoteConfig struct {
 	PublicREST          string            `json:"public_rest"`
 	PublicRPC           string            `json:"public_rpc"`
 	BinaryRepo          string            `json:"binary_repo"`
+	BinaryVersion       string            `json:"binary_version,omitempty"` // Optional pin (e.g. "v8.1.0"). Empty = use latest GitHub release.
 	TrustHeightOffset   int64             `json:"trust_height_offset"`
 	Binaries            map[string]string `json:"binaries,omitempty"` // os/arch -> URL?checksum=sha256:...
 }

@@ -18,8 +18,10 @@ type AppSettings struct {
 	DeveloperMode    bool   `json:"developerMode"`    // Default: false
 
 	// Developer mode — Node & Sync
-	ResyncBlockThreshold int `json:"resyncBlockThreshold"` // Default: 28800 (~48h at 6s/block)
-	MaxBlockAgeSec       int `json:"maxBlockAgeSec"`       // Default: 18
+	ResyncBlockThreshold  int    `json:"resyncBlockThreshold"`  // Default: 28800 (~48h at 6s/block) — local storage size trigger
+	MaxBlocksBehindResync int    `json:"maxBlocksBehindResync"` // Default: 14400 (~24h at 6s/block) — "too far behind network" trigger
+	MaxBlockAgeSec        int    `json:"maxBlockAgeSec"`        // Default: 18
+	NodeLogLevel          string `json:"nodeLogLevel"`          // Default: "info". Overrides config.toml log_level for the bzed node. "" = leave bze-configs value untouched. Use "info"/"debug" to see state-sync discovery, "error" for quiet.
 
 	// Developer mode — Proxy
 	LocalNodeTimeoutMs        int `json:"localNodeTimeoutMs"`        // Default: 1500
@@ -47,7 +49,9 @@ func DefaultSettings() AppSettings {
 		LogLevel:                  "info",
 		DeveloperMode:             false,
 		ResyncBlockThreshold:      28800,
+		MaxBlocksBehindResync:     14400,
 		MaxBlockAgeSec:            18,
+		NodeLogLevel:              "info",
 		LocalNodeTimeoutMs:        1500,
 		CircuitBreakerThreshold:   3,
 		CircuitBreakerCooldownSec: 120,

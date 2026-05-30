@@ -40,6 +40,26 @@ type ReleaseAsset struct {
 
 Check on app startup and every 6 hours. Cache the response to respect GitHub API rate limits (60 req/hour unauthenticated).
 
+> **Version checking (implemented).** On startup the Hub compares the installed binary's version (`bzed version`) against the **desired** version (`DesiredBinaryVersion`). If they differ, it re-downloads before starting the node and records the result in `{appdata}/config/node-version.json`. This is critical: a **stale binary cannot state-sync** — snapshots carry the *current* chain's module/store set, so an old binary fails snapshot restore with errors like `multistore restore: version of store <module> mismatch ... expected <H> got 0` (e.g. an old binary still mounting `x/crisis` after the chain removed it), and it would also panic at the next on-chain upgrade height. Version resolution failures (e.g. GitHub unreachable) are non-fatal: the Hub keeps the existing binary rather than blocking. The periodic 6-hour re-check while running is still TODO (only the startup check exists).
+
+### Version selection precedence
+
+The **installed** version always comes from running the binary (`bzed version`) — never from the filename or download URL. The **desired** version is resolved in this order:
+
+1. **`binary_version` pin in the remote config** (`bze-hub/mainnet.json` in `bze-configs`) — **preferred**. This is the source of truth for production: the BZE team sets the exact version the live chain requires, so it can never run ahead of the on-chain upgrade height.
+2. **Latest GitHub release tag** (`releases/latest` → `tag_name` on `binary_repo`) — **fallback** when no pin is set.
+
+```jsonc
+// bze-hub/mainnet.json
+{
+  "binary_repo": "bze-alphateam/bze",
+  "binary_version": "v8.1.0",   // optional — preferred when present; omit to use latest release
+  ...
+}
+```
+
+Caveat for the fallback: "latest release" can briefly differ from "what the chain needs right now" if a release is cut ahead of its upgrade height. Pinning `binary_version` avoids that window. Comparison is normalized, so `v8.1.0` and `8.1.0` are equal.
+
 ### Asset Naming Convention
 
 From the blockchain Makefile, release binaries follow this pattern:
@@ -239,96 +259,46 @@ func (m *Manager) getBlockHash(rpcURL string, height int64) (string, error) {
 }
 ```
 
-### Periodic Re-Sync (Every ~48 Hours)
+### Re-Sync: Two Triggers
 
-The re-sync is NOT a simple 48h timer. It's driven by the **node health monitor** (see section 7) which continuously evaluates the local node's state.
+Re-sync is NOT a simple 48h timer. It's driven by the **node health monitor** (see section 7), which continuously evaluates the local node's state. There are **two independent triggers**, both implemented in `internal/node/health.go`:
 
-**How it decides to re-sync:**
-
-The hourly health check goroutine queries the local node's `/status` endpoint and examines `earliest_block_height` and `latest_block_height`. The gap between these tells us how much block history the node is holding. When this gap represents more than ~48h of blocks (based on average block time), it's time to re-sync to reclaim disk space.
+**Trigger 1 — local storage too large (disk).** Checked in the **slow loop** (hourly). Queries the local node's `/status` and examines `earliest_block_height` and `latest_block_height`. The gap is how much block history the node is holding. If it exceeds `ResyncBlockThreshold` (default **28800** ≈ 48h at 6s/block) we re-sync to reclaim disk.
 
 ```go
-const (
-    avgBlockTimeSec  = 6     // BZE average block time
-    resyncThreshold  = 48 * 3600 / avgBlockTimeSec // ~28,800 blocks ≈ 48h
-)
-
-func (m *Manager) needsResync(status *NodeStatus) bool {
-    blockRange := status.LatestBlockHeight - status.EarliestBlockHeight
-    return blockRange > resyncThreshold
-}
+blockRange := status.LatestBlockHeight - status.EarliestBlockHeight
+if blockRange > cfg.ResyncBlockThreshold { onResyncNeeded() }
 ```
 
-**Re-sync procedure:**
+Note: with aggressive pruning (`pruning-keep-recent=100`) `earliest` tracks ~100 below `latest`, so on a healthy pruned node this gap stays small — Trigger 1 mainly guards long-running nodes against accumulation.
 
-1. Health monitor determines re-sync is needed
-2. **Switch proxy to public endpoints first** (so dApps are not disrupted)
-3. Stop the running node
-4. Run `bzed tendermint unsafe-reset-all --home {appdata}/node --keep-addr-book`
-5. Recalculate trust height and hash from current public RPC state
-6. Update `config.toml` with new state sync parameters
-7. Restart the node (it begins state syncing)
-8. Health monitor detects node is syncing (`catching_up: true`)
-9. Once node reports `catching_up: false` AND passes the cross-check (see section 7), **switch proxy back to local node**
-10. Update `sync-state.json` with timestamp
+**Trigger 2 — too far behind the network (staleness).** Checked in the **fast loop** while the node reports `catching_up: true` (throttled to one public-RPC query per ~60s; `maybeResyncIfTooFarBehind` → `lagResyncCheck`). It compares the local height to a public RPC's latest height; if `public − local > MaxBlocksBehindResync` (default **14400** ≈ 24h) it re-syncs.
 
 ```go
-func (m *Manager) performResync() error {
-    log.Info("[node] starting periodic re-sync — switching proxy to public endpoints")
-    m.proxy.UsePublicEndpoints()
-
-    log.Info("[node] stopping node for re-sync")
-    if err := m.Stop(); err != nil {
-        return fmt.Errorf("failed to stop node for resync: %w", err)
-    }
-
-    log.Info("[node] resetting node data (keeping address book)")
-    cmd := exec.Command(m.binaryPath(), "tendermint", "unsafe-reset-all",
-        "--home", m.nodeHome(), "--keep-addr-book")
-    if err := cmd.Run(); err != nil {
-        return fmt.Errorf("unsafe-reset-all failed: %w", err)
-    }
-
-    log.Info("[node] recalculating state sync parameters")
-    if err := m.configureStateSync(m.nodeHome()); err != nil {
-        return fmt.Errorf("state sync config failed: %w", err)
-    }
-
-    log.Info("[node] restarting node with fresh state sync")
-    if err := m.Start(); err != nil {
-        return fmt.Errorf("node restart failed: %w", err)
-    }
-
-    // The health monitor will detect when the node is caught up
-    // and switch the proxy back to local automatically.
-    m.saveSyncState(SyncState{
-        LastResyncAt: time.Now(),
-    })
-
-    return nil
-}
+behind := publicHeight - localHeight
+if behind > cfg.MaxBlocksBehindResync { onResyncNeeded() }   // debounced 5m; skipped while already resyncing
 ```
+
+**Why Trigger 2 exists (the important nuance):** CometBFT state sync only runs on a node with **no existing state**. A node that already has data at some height (e.g. after being closed for days) will **block-sync** forward block-by-block — replaying potentially hundreds of thousands of blocks over hours — and ignore `[statesync] enable=true`. So when a node is far behind, "just let it catch up" is the slow path. Trigger 2 detects this and forces a re-sync, which wipes the data dir so the restarted node has no state and therefore performs a fresh, near-instant state sync from a recent snapshot. The first lag check fires on the first `catching_up` tick, so a stale node re-syncs within seconds of startup rather than grinding for hours.
+
+> **Operational dependency (state sync needs snapshot-serving peers).** State sync downloads snapshot **chunks from P2P peers** — the `rpc_servers` are only used by the light client to verify the trust header/app-hash. After a reset the node sits at `height=0, catching_up=true` during snapshot **discovery**, and only jumps to the snapshot height once a full snapshot is downloaded and applied. If no discovered peer is serving snapshots (e.g. providers run with `snapshot-interval = 0`, or peer discovery via seeds is too thin), discovery never completes and the node stays at height 0 — with no error logged (discovery is info-level). This is the trade-off Trigger 2 introduces: it depends on the network actually serving snapshots. Diagnose by raising `NodeLogLevel` to `info`/`debug` (see section 11) and watching for `statesync` discovery logs. **Known gap:** there is currently no "state sync failed to bootstrap within N minutes" fallback — a node stuck in discovery will eventually be caught by the 10-minute public-stall watchdog (`ForceReInitNode`), which re-inits and tries state sync again (it can loop if snapshots are genuinely unavailable).
+
+**Re-sync procedure** (`App.performResync` in `app.go`, invoked via the health monitor's `onResyncNeeded` callback):
+
+1. **Re-entry guard** — if the node is already `resyncing`, ignore the duplicate trigger (both the slow-loop and fast-loop checks can fire).
+2. Set state `resyncing` and **switch the proxy to public endpoints first** (so dApps are not disrupted).
+3. Stop the running node (SIGTERM, up to 30s for a clean CometBFT shutdown).
+4. **Re-fetch the remote config** (pick up any updated configs; fall back to the cached copy on failure).
+5. `node.UnsafeResetAll()` → `bzed tendermint unsafe-reset-all --home {appdata}/node --keep-addr-book`. This `RemoveAll`s the entire `node/data/` dir (application/IAVL state, blockstore, state, WAL, evidence, tx index) and resets `priv_validator_state.json`; it keeps `addrbook.json`, the keys, genesis, and the toml configs (those live under `config/`).
+6. `node.ReInitConfigs()` — re-download `config.toml`/`app.toml` and recompute the `[statesync]` `trust_height`/`trust_hash` from the current chain tip.
+7. Restart the node. With an empty data dir and state sync enabled, it now performs a fresh state sync from a recent snapshot.
+8. Set state `syncing`. The fast loop detects `catching_up: false` + a fresh block and **switches the proxy back to local** automatically.
 
 ### What Happens on Startup
 
-On app startup, before starting the node:
+> **Note (current behavior):** the earlier design called for a `sync-state.json` file and a startup age-check that re-synced if >48h had elapsed. **This was never implemented** — there is no `sync-state.json`. Startup simply initializes (if needed) and starts the node; staleness is handled reactively by **Trigger 2** in the fast loop, which fires on the first `catching_up` tick (within seconds). So a node that has been off for days is detected as far-behind almost immediately and re-syncs, rather than being decided at startup.
 
-1. Check if the node data directory exists and has state
-2. If yes: check `sync-state.json` for last re-sync time
-3. If more than 48h have passed (or file doesn't exist): trigger a re-sync before starting
-4. If less than 48h: start the node normally, let the hourly monitor handle it
-
-```go
-func (m *Manager) startupCheck() {
-    syncState := m.loadSyncState()
-    if syncState == nil || time.Since(syncState.LastResyncAt) > 48*time.Hour {
-        log.Info("[node] stale data detected on startup — triggering re-sync")
-        m.performResync()
-    } else {
-        m.Start()
-    }
-}
-```
+The relevant startup path is `App.setupNode` in `app.go`: check for an existing/alive instance → fetch remote config → download binary if missing → discover ports → `InitNode` if not initialized → start proxies → adopt an orphan node or start a fresh one → launch the health-fast, health-slow, and doctor routines.
 
 ### Error Handling
 
@@ -347,25 +317,17 @@ If state sync fails:
 - Dashboard shows a "Retry" button
 - On retry: repeat the re-sync procedure
 
-If state sync fails with a different trust height offset, retry with alternatives:
-```go
-offsets := []int64{3000, 2000, 5000, 1000, 10000}
-for _, offset := range offsets {
-    trustHeight := latestHeight - offset
-    // try state sync with this trust height...
-}
-```
+The trust height is computed as `latestHeight − TrustHeightOffset`, where `TrustHeightOffset` comes from the remote config (default **2000** if unset). Retrying with a series of alternative offsets (`3000, 2000, 5000, …`) was part of the original design but is **not currently implemented** — there is a single offset per attempt.
 
-### Sync State File
+**Watchdog safety net:** if the node stays on public endpoints / stuck for ~10 minutes (or the doctor heartbeat goes stale), the health monitor escalates to `ForceReInitNode` (`onForceReInit`). That is the heavier nuke — it `RemoveAll`s the whole `node/` dir **and** deletes the `bzed` binary, then re-runs full setup (1-minute cooldown between invocations). Contrast with the re-sync above, which keeps configs, keys, and the peer book.
 
-```go
-// {appdata}/config/sync-state.json
-type SyncState struct {
-    LastResyncAt time.Time `json:"lastResyncAt"`
-}
-```
+### Re-Sync State Tracking
 
-Minimal — just tracks when the last re-sync happened. The decision to re-sync is based on the node's actual block range, not a calculated `NextSyncAt`.
+There is **no persisted sync-state file**. The decision to re-sync is made live from the node's `/status` each loop tick:
+- Trigger 1 from the local block range (`latest − earliest`)
+- Trigger 2 from the lag vs a public RPC (`public − local`)
+
+In-memory guards prevent thrash: the fast-loop lag check is throttled to one public query per ~60s, and a lag-triggered re-sync is debounced for 5 minutes (`lastLagCheck` / `lastLagResync` in `HealthMonitor`).
 
 ## 6. Node Lifecycle
 
@@ -663,6 +625,8 @@ func (m *Manager) pollLocalStatus() (*LocalStatus, error) {
 }
 ```
 
+**Fast-loop lag check (Trigger 2 — see section 5).** When `pollLocalStatus` reports `catching_up: true`, the fast loop also calls `maybeResyncIfTooFarBehind(localHeight)`. This is throttled to one public-RPC height query per ~60s (the query and the resync trigger run in a goroutine so the 5s ticker is never blocked). If the node is more than `MaxBlocksBehindResync` blocks behind the network it triggers a re-sync. This also refreshes the UI's target height while catching up. When the node is `synced` (proxy on local) no public query is made — the lag check is gated on `catching_up`, keeping the synced steady-state fully local.
+
 ### Slow Loop (Hourly Cross-Check)
 
 Runs every hour. Performs two tasks:
@@ -792,7 +756,7 @@ If any condition fails, the state drops to `syncing` or `error`, and the proxy f
 
 ## 8. Endpoint Routing via Proxy Servers
 
-The Hub runs two local proxy servers that transparently route traffic to either the local node or public endpoints based on node health. See 04-ui-shell.md section 7 for full details.
+The Hub runs two local proxy servers that transparently route traffic to either the local node or public endpoints based on node health. The implementation lives in `internal/proxy/`.
 
 ### How It Works
 
@@ -844,13 +808,16 @@ If a port is in use, either:
 
 Testnet is **not supported in the MVP**. The Hub targets mainnet (`beezee-1`) only.
 
-When testnet support is added later, it would need: separate node home directory (`node-testnet/`), separate genesis/peers/state sync config, network switching UI, and iframe reloading. See 07-configuration.md section 5 for notes.
+When testnet support is added later, it would need: separate node home directory (`node-testnet/`), separate genesis/peers/state sync config, network switching UI, and a refresh of the native dApp pages' chain data. See 07-configuration.md section 5 for notes.
 
 ## 11. Node Configuration
 
 Both `config.toml` and `app.toml` are fetched from `bze-configs` at init time (see section 3). The Hub does not maintain its own templates — the BZE team keeps the canonical configs in the `bze-configs` repo.
 
-The only field the Hub writes dynamically is the `[statesync]` section in `config.toml` (trust height and hash, calculated from the current chain state — see section 5).
+The fields the Hub writes dynamically into `config.toml` after fetching it are:
+- The `[statesync]` section — `enable`, `rpc_servers`, and `trust_height`/`trust_hash` calculated from the current chain state (see section 5).
+- `moniker`, the P2P/RPC `laddr` ports.
+- `log_level` — overridden from the `NodeLogLevel` setting (default `"info"`). `bze-configs` ships `log_level = "error"`, which hides state-sync discovery/progress logs; the override restores visibility. Set `NodeLogLevel` to `""` to leave the fetched value untouched, or `"error"` for a quiet node. (`app.toml` only gets the API/gRPC enable + address rewrites.)
 
 Key settings that the `bze-configs` app.toml must include for the Hub to work:
 

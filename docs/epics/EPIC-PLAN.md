@@ -2,22 +2,22 @@
 
 Each epic produces a working, testable increment. At the end of each epic, a completion doc (`epic-01-done.md`, `epic-02-done.md`, etc.) is written in this folder describing what was built, design decisions made, and where the next epic picks up.
 
-## Epic 1: Wails Project Setup + React Shell Layout
+## Epic 1: Wails Project Setup + React Layout
 
-**Goal**: A running Wails dev app with the shell layout structure and Chakra UI v3.
+**Goal**: A running Wails dev app with the app layout structure and Chakra UI v3.
 
 **Deliverables**:
 - Wails v2 project initialized (`wails init` + customizations)
 - Go backend: `main.go`, `app.go` with `startup()` / `shutdown()` stubs
 - React frontend with Chakra UI v3:
-  - Shell layout: tab bar (top), content area (center), status bar (bottom)
-  - Tab bar: placeholder buttons (Dashboard, DEX, Burner, Staking) — non-functional, just visual
+  - App layout: tab bar (top), content area (center), status bar (bottom)
+  - Tab bar: placeholder buttons (Dashboard, Staking) — non-functional, just visual
   - Content area: "Welcome to BZE Hub, let's get you started" centered text
   - Status bar: static text placeholder ("Node: not started | Network: Mainnet")
 - `wails dev` starts the app successfully
 - `wails build` produces a binary
 
-**Does NOT include**: keyring, wallet, node management, iframes, proxy, hub-connector.
+**Does NOT include**: keyring, wallet, node management, proxy.
 
 ---
 
@@ -46,7 +46,7 @@ Each epic produces a working, testable increment. At the end of each epic, a com
 - Password prompt on startup for Windows/Linux (if untrusted device)
 - Touch ID / Keychain auth on macOS
 
-**Does NOT include**: node management, iframes, proxy, hub-connector, Keplr bridge.
+**Does NOT include**: node management, proxy.
 
 ---
 
@@ -131,28 +131,20 @@ Each epic produces a working, testable increment. At the end of each epic, a com
   - Top bar: node indicator text (e.g., "Local" or "Public")
   - Dashboard: node status panel with Start/Stop/Restart buttons, log viewer
 
-**Does NOT include**: iframes, hub-connector, Keplr bridge, dApp loading.
+**Does NOT include**: native dApp UI (DEX/Burner pages).
 
 ---
 
-## Epic 4a: iframe dApp Loading
+## Epic 4: Native dApp UI (TBD)
 
-Load BZE dApps in iframes. Tab switching shows/hides iframes. No wallet integration yet. See `epic-04a-plan.md`.
-
-## Epic 4b: @bze/hub-connector Library
-
-Standalone npm package. Detects Hub parent, creates `window.keplr` via postMessage. See `epic-04b-plan.md`.
-
-## Epic 4c: Bridge Integration + Signing
-
-Wire shell ↔ connector ↔ Go wallet. Approval dialog. Account sync. See `epic-04c-plan.md`.
+**Superseded direction.** The original Epic 4 — 4a (iframe dApp loading), 4b (`@bze/hub-connector` library), 4c (Keplr bridge integration) — has been **abandoned**. BZE Hub no longer embeds web dApps; dApp functionality is implemented natively instead. Dashboard and Staking pages exist today; native DEX/Burner are still to be designed. Plan docs to follow. The old `epic-04*-plan.md` files were removed (recoverable via git history).
 
 ## Future Epics (to be defined)
 
 - **Epic 5**: Auto-updater — binary version checking, download, chain upgrade detection
 - **Epic 6**: Settings polish — developer mode editable fields, log viewer in app, export/import app data
 - **Epic 7**: Build & distribution — CI/CD pipeline, cross-platform packaging, signing
-- **Epic 8**: Third-party dApp support — permission model, custom tabs
+- **Epic 8**: Third-party dApp support — native integration model (TBD; the original iframe permission-model approach is obsolete)
 
 ---
 
@@ -290,4 +282,4 @@ Each goroutine receives `ctx` and checks `ctx.Done()` in its loop to know when t
 
 ### Logging
 
-All components use the unified logger with tags (see 07-configuration.md). Default level: `error`. Every component prefixes its logs: `[node]`, `[proxy]`, `[wallet]`, `[bridge]`, etc.
+All components use the unified logger with tags (see 07-configuration.md). Default level: `error`. Every component prefixes its logs: `[node]`, `[proxy]`, `[wallet]`, etc.

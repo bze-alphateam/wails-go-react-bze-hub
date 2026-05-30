@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bze-alphateam/bze-hub/internal/logging"
@@ -14,12 +15,20 @@ import (
 
 // HealthConfig holds configurable parameters for the health monitor.
 type HealthConfig struct {
-	FastIntervalSec      int // How often to poll local /status (default: 5)
-	SlowIntervalSec      int // How often to cross-check + re-sync check (default: 3600)
-	MaxBlockAgeSec       int // Max block age before considering node out of sync (default: 18)
-	ResyncBlockThreshold int // Block range triggering re-sync (default: 28800)
-	CrossCheckDelta      int // Max blocks behind public before flagging (default: 2)
+	FastIntervalSec       int // How often to poll local /status (default: 5)
+	SlowIntervalSec       int // How often to cross-check + re-sync check (default: 3600)
+	MaxBlockAgeSec        int // Max block age before considering node out of sync (default: 18)
+	ResyncBlockThreshold  int // Local storage block range triggering re-sync (default: 28800)
+	MaxBlocksBehindResync int // Blocks behind the network that triggers a state-sync resync (default: 14400)
+	CrossCheckDelta       int // Max blocks behind public before flagging (default: 2)
 }
+
+// lagCheckInterval throttles how often we query a public RPC to measure how far
+// behind the network the local node is while it is catching up.
+const lagCheckInterval = 60 * time.Second
+
+// lagResyncDebounce prevents re-triggering a resync while one is already in flight.
+const lagResyncDebounce = 5 * time.Minute
 
 // LocalNodeStatus holds parsed data from the local node's /status endpoint.
 type LocalNodeStatus struct {
@@ -44,6 +53,12 @@ type HealthMonitor struct {
 
 	// Tracks how long we've been on public endpoints
 	publicSince time.Time
+
+	// Guards the lag-check throttle / resync debounce timestamps below,
+	// which are read by the fast loop and written by the async lag check.
+	lagMu         sync.Mutex
+	lastLagCheck  time.Time // last time we queried public height while catching up
+	lastLagResync time.Time // last time a lag-based resync was triggered
 }
 
 // NewHealthMonitor creates a health monitor.
@@ -165,6 +180,10 @@ func (hm *HealthMonitor) updateFromStatus(status *LocalNodeStatus) {
 		hm.appState.SetNodeStatus(state.NodeSyncing)
 		hm.appState.SetProxyTarget("public")
 		hm.checkPublicStallWatchdog()
+		// While catching up, periodically check how far behind the network we are.
+		// If the gap is too large, block-syncing would take hours — trigger a
+		// fresh state-sync resync instead (CometBFT only state-syncs a reset node).
+		hm.maybeResyncIfTooFarBehind(status.LatestBlockHeight)
 		return
 	}
 
@@ -198,6 +217,67 @@ func (hm *HealthMonitor) updateFromStatus(status *LocalNodeStatus) {
 	// Clear any lingering "Node syncing..." work text
 	if hm.appState.GetCurrentWork() != "" {
 		hm.appState.SetCurrentWork("")
+	}
+}
+
+// maybeResyncIfTooFarBehind checks (throttled) how far the local node is behind
+// the network while it is catching up. If the gap exceeds the configured
+// threshold it triggers a state-sync resync instead of letting CometBFT
+// block-sync the entire gap (which can take hours). The public-RPC query and
+// resync trigger run in a goroutine so the fast loop's ticker is never blocked.
+func (hm *HealthMonitor) maybeResyncIfTooFarBehind(localHeight int64) {
+	hm.lagMu.Lock()
+	if !hm.lastLagCheck.IsZero() && time.Since(hm.lastLagCheck) < lagCheckInterval {
+		hm.lagMu.Unlock()
+		return
+	}
+	hm.lastLagCheck = time.Now()
+	hm.lagMu.Unlock()
+
+	go hm.lagResyncCheck(localHeight)
+}
+
+func (hm *HealthMonitor) lagResyncCheck(localHeight int64) {
+	threshold := int64(hm.cfg.MaxBlocksBehindResync)
+	if threshold <= 0 {
+		threshold = 14400
+	}
+
+	if len(hm.remoteCfg.StateSyncRPCServers) == 0 {
+		return
+	}
+	rpcURL := cleanRPCURL(hm.remoteCfg.StateSyncRPCServers[0])
+	pubHeight, err := getLatestBlockHeight(rpcURL)
+	if err != nil {
+		logging.Debug("health", "lag check: public height unreachable: %v", err)
+		return
+	}
+
+	// Keep the UI's sync target fresh while catching up.
+	hm.appState.SetNodeTargetHeight(pubHeight)
+
+	behind := pubHeight - localHeight
+	if behind <= threshold {
+		logging.Debug("health", "lag check: %d blocks behind network (within threshold %d)", behind, threshold)
+		return
+	}
+
+	// Don't re-trigger while a resync is already in progress or just started.
+	if hm.appState.GetNodeStatus() == state.NodeResyncing {
+		return
+	}
+	hm.lagMu.Lock()
+	if !hm.lastLagResync.IsZero() && time.Since(hm.lastLagResync) < lagResyncDebounce {
+		hm.lagMu.Unlock()
+		return
+	}
+	hm.lastLagResync = time.Now()
+	hm.lagMu.Unlock()
+
+	logging.Info("health", "local node is %d blocks behind network (local: %d, public: %d) — exceeds threshold %d, triggering state-sync resync",
+		behind, localHeight, pubHeight, threshold)
+	if hm.onResyncNeeded != nil {
+		hm.onResyncNeeded()
 	}
 }
 

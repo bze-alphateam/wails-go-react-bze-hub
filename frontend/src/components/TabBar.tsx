@@ -1,18 +1,14 @@
 import { Box, HStack, Button, Text, Spacer, IconButton } from "@chakra-ui/react";
-import { LuHouse, LuChartColumn, LuFlame, LuLock, LuRefreshCw } from "react-icons/lu";
+import { LuHouse, LuLock, LuRefreshCw } from "react-icons/lu";
 import { WalletMenu } from "./WalletMenu";
 
 const tabs = [
   { id: "dashboard", label: "Dashboard" },
-  { id: "dex", label: "DEX" },
-  { id: "burner", label: "Burner" },
   { id: "staking", label: "Staking" },
 ] as const;
 
 const tabIcons: Record<string, React.ReactNode> = {
   dashboard: LuHouse({}) as React.ReactNode,
-  dex: LuChartColumn({}) as React.ReactNode,
-  burner: LuFlame({}) as React.ReactNode,
   staking: LuLock({}) as React.ReactNode,
 };
 

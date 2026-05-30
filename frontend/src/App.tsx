@@ -3,20 +3,12 @@ import { Flex, Spinner, Center, Text, Box } from "@chakra-ui/react";
 import { TabBar } from "./components/TabBar";
 import { StatusBar } from "./components/StatusBar";
 import { Dashboard } from "./components/dashboard/Dashboard";
-import { DAppFrame } from "./components/DAppFrame";
 import { Wizard } from "./components/wizard/Wizard";
 import { IsFirstRun, GetAccounts, GetNodeSnapshot } from "../wailsjs/go/main/App";
 import { EventsOn } from "../wailsjs/runtime/runtime";
-import { useBridgeHandler, notifyAccountChanged } from "./hooks/useBridgeHandler";
-import { ApprovalDialog, type SignApprovalRequest } from "./components/ApprovalDialog";
+import { StakingPage } from "./components/staking/StakingPage";
 
 type AppView = "loading" | "wizard" | "main" | "shutdown";
-
-const DAPP_TABS = [
-  { id: "dex", label: "DEX", url: "https://dex.getbze.com" },
-  { id: "burner", label: "Burner", url: "https://burner.getbze.com" },
-  { id: "staking", label: "Staking", url: "https://staking.getbze.com" },
-] as const;
 
 function App() {
   const [view, setView] = useState<AppView>("loading");
@@ -24,20 +16,6 @@ function App() {
   const [activeAddress, setActiveAddress] = useState("");
   const [activeLabel, setActiveLabel] = useState("");
   const [proxyTarget, setProxyTarget] = useState("public");
-
-  // Track which dApp tabs have been activated (for lazy loading)
-  const [mountedTabs, setMountedTabs] = useState<Set<string>>(new Set());
-  // Increment to force iframe reload
-  const [refreshKey, setRefreshKey] = useState(0);
-  // Approval dialog state
-  const [approvalRequest, setApprovalRequest] = useState<SignApprovalRequest | null>(null);
-
-  // Bridge handler — listens for postMessage from hub-connector in iframes
-  useBridgeHandler({
-    onSignRequest: (request) => {
-      setApprovalRequest(request);
-    },
-  });
 
   useEffect(() => {
     checkFirstRun();
@@ -74,19 +52,12 @@ function App() {
   activeTabRef.current = activeTab;
 
   const handleRefresh = useCallback(() => {
-    if (activeTabRef.current === "dashboard") {
-      window.location.reload();
-    } else {
-      setRefreshKey((k) => k + 1);
-    }
+    // Dashboard does a full reload; staking auto-polls via useStakingData.
+    if (activeTabRef.current === "dashboard") window.location.reload();
   }, []);
 
-  // When a dApp tab is activated for the first time, mount its iframe
   function handleTabChange(tabId: string) {
     setActiveTab(tabId);
-    if (tabId !== "dashboard" && !mountedTabs.has(tabId)) {
-      setMountedTabs((prev) => new Set([...prev, tabId]));
-    }
   }
 
   async function checkFirstRun() {
@@ -113,8 +84,6 @@ function App() {
         const active = accounts.find((a: any) => a.bech32Address === data.activeAddress);
         setActiveLabel(active?.label || "");
       }
-      // Notify dApp iframes about the account change
-      notifyAccountChanged();
     } catch (e) {
       console.error("load accounts failed:", e);
     }
@@ -157,7 +126,6 @@ function App() {
         onAccountChanged={loadAccounts}
       />
 
-      {/* Content area — dashboard + dApp iframes */}
       <Box flex="1" bg="bg" overflow="hidden" position="relative">
         {/* Dashboard */}
         <Box
@@ -175,34 +143,19 @@ function App() {
           />
         </Box>
 
-        {/* dApp iframes — lazy mounted, kept alive via display:none */}
-        {DAPP_TABS.map((tab) =>
-          mountedTabs.has(tab.id) ? (
-            <DAppFrame
-              key={tab.id}
-              url={tab.url}
-              label={tab.label}
-              isActive={activeTab === tab.id}
-              refreshKey={activeTab === tab.id ? refreshKey : undefined}
-            />
-          ) : null
-        )}
+        {/* Native Staking Page */}
+        <Box
+          position="absolute"
+          top="0" left="0"
+          width="100%" height="100%"
+          display={activeTab === "staking" ? "block" : "none"}
+          overflow="hidden"
+        >
+          <StakingPage address={activeAddress} proxyTarget={proxyTarget} />
+        </Box>
       </Box>
 
       <StatusBar />
-
-      {/* Signing approval dialog — rendered above everything including iframes */}
-      {approvalRequest && (
-        <ApprovalDialog
-          request={{
-            ...approvalRequest,
-            resolve: (approved) => {
-              approvalRequest.resolve(approved);
-              setApprovalRequest(null);
-            },
-          }}
-        />
-      )}
     </Flex>
   );
 }

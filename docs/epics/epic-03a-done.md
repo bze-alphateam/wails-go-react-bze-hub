@@ -62,7 +62,7 @@ Shutdown: proxies stop, routines drain cleanly, no leaks
 
 2. **Circuit breaker per-proxy**: Each proxy (REST, RPC) has its own circuit breaker. A REST timeout doesn't affect RPC routing and vice versa.
 
-3. **Proxy always starts**: Even on first run (before wizard completes), proxies are running. They route to public endpoints since node status is `not_started`. This means the hub-connector can always point dApps at the proxy URLs.
+3. **Proxy always starts**: Even on first run (before wizard completes), proxies are running. They route to public endpoints since node status is `not_started`. This means the native dApp pages (and the backend's chain queries) can always rely on the proxy URLs.
 
 4. **gorilla/websocket**: Used for WebSocket proxying since it's already an indirect dependency via Wails. No new deps added.
 

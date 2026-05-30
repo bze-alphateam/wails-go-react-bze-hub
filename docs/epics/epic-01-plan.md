@@ -1,8 +1,10 @@
-# Epic 1 Plan: Wails Project Setup + React Shell Layout
+# Epic 1 Plan: Wails Project Setup + React Layout
+
+> **Historical record.** Original Epic 1 plan. Here "shell layout" means the app's own native layout (tab bar / content / status bar), not a web-dApp shell. The later native pivot dropped the iframe/bridge dApp approach; see the Direction note in the docs README.
 
 ## Goal
 
-A running Wails v2 app with React 19 + Chakra UI v3 shell layout (tab bar, content area, status bar) that opens in dev mode.
+A running Wails v2 app with React 19 + Chakra UI v3 layout (tab bar, content area, status bar) that opens in dev mode.
 
 ## Prerequisites (verified)
 

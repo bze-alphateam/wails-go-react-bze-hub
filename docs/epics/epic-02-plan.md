@@ -31,4 +31,4 @@ Full wallet backend (keyring, BIP44 derivation, account management, signing) and
 - Windows/Linux: app password required (AES-256-GCM + Argon2id encryption before keyring storage)
 - Keyring stores mnemonics and PKs separately; app fetches only what each operation needs
 - Multiple mnemonics supported, each labeled
-- Signing not wired to bridge yet (that's Epic 4) — implemented and unit tested only
+- Signing implemented and unit tested only — not yet wired into any UI flow (later consumed natively; the original Epic 4 bridge wiring was abandoned)

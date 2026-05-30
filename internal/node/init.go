@@ -30,7 +30,7 @@ func IsNodeInitialized() bool {
 // 1. Run bzed init
 // 2. Download genesis, config.toml, app.toml from remote config
 // 3. Post-process configs (moniker, ports, state sync, enable REST/RPC)
-func InitNode(cfg *RemoteConfig, ports PortSet) error {
+func InitNode(cfg *RemoteConfig, ports PortSet, logLevel string) error {
 	home := NodeHome()
 	binary := BinaryPath()
 
@@ -63,7 +63,7 @@ func InitNode(cfg *RemoteConfig, ports PortSet) error {
 
 	// 3. Post-process config.toml
 	configPath := filepath.Join(home, "config", "config.toml")
-	if err := postProcessConfig(configPath, cfg, ports); err != nil {
+	if err := postProcessConfig(configPath, cfg, ports, logLevel); err != nil {
 		return fmt.Errorf("post-process config.toml: %w", err)
 	}
 
@@ -79,7 +79,7 @@ func InitNode(cfg *RemoteConfig, ports PortSet) error {
 
 // ReInitConfigs re-downloads and re-processes config files (used during re-sync).
 // Does NOT run bzed init again — only refreshes configs.
-func ReInitConfigs(cfg *RemoteConfig, ports PortSet) error {
+func ReInitConfigs(cfg *RemoteConfig, ports PortSet, logLevel string) error {
 	home := NodeHome()
 
 	logging.Info("node", "re-downloading config files...")
@@ -91,7 +91,7 @@ func ReInitConfigs(cfg *RemoteConfig, ports PortSet) error {
 	}
 
 	configPath := filepath.Join(home, "config", "config.toml")
-	if err := postProcessConfig(configPath, cfg, ports); err != nil {
+	if err := postProcessConfig(configPath, cfg, ports, logLevel); err != nil {
 		return fmt.Errorf("post-process config.toml: %w", err)
 	}
 
@@ -105,12 +105,19 @@ func ReInitConfigs(cfg *RemoteConfig, ports PortSet) error {
 
 // --- Config post-processing ---
 
-func postProcessConfig(configPath string, cfg *RemoteConfig, ports PortSet) error {
+func postProcessConfig(configPath string, cfg *RemoteConfig, ports PortSet, logLevel string) error {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return err
 	}
 	content := string(data)
+
+	// Override the node log level (bze-configs ships "error", which hides
+	// state-sync discovery logs). Empty string leaves the fetched value as-is.
+	if logLevel != "" {
+		content = replaceTOMLValue(content, "log_level", fmt.Sprintf(`"%s"`, logLevel))
+		logging.Info("node", "log_level: %s", logLevel)
+	}
 
 	// Set moniker
 	moniker := GenerateMoniker()
