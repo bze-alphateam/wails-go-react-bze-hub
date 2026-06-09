@@ -9,7 +9,7 @@ import {
   Collapsible,
 } from "@chakra-ui/react";
 import { LuChevronRight, LuChevronDown, LuPlus } from "react-icons/lu";
-import { formatAmount, ubzeToHuman, calcRewardsStakingApr, calcRewardsStakingPending } from "../../utils/stakingHelpers";
+import { formatAmount, ubzeToHuman, calcRewardsStakingApr, calcRewardsStakingPending, isRewardActive } from "../../utils/stakingHelpers";
 import { JoinRewardModal } from "./modals/JoinRewardModal";
 import { PendingUnlocks } from "./PendingUnlocks";
 import type {
@@ -43,8 +43,9 @@ export function RewardsStakingSection({
     const map = new Map<string, GroupedRewardStaking>();
 
     for (const reward of stakingRewards) {
-      // Skip completed rewards (payouts >= duration)
-      if (reward.payouts >= reward.duration) continue;
+      // Skip completed rewards (payouts >= duration). isRewardActive is robust to
+      // a fresh program whose payouts (uint32, omitempty) serialized as undefined.
+      if (!isRewardActive(reward)) continue;
 
       const existing = map.get(reward.staking_denom);
       if (existing) {
@@ -74,7 +75,7 @@ export function RewardsStakingSection({
 
   // Flat list for advanced view
   const activeRewards = useMemo(
-    () => stakingRewards.filter((r) => r.payouts < r.duration),
+    () => stakingRewards.filter(isRewardActive),
     [stakingRewards]
   );
 

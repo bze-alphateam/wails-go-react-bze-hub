@@ -132,6 +132,24 @@ export function calcRewardsStakingApr(
   return apr.toFixed(2);
 }
 
+/**
+ * Whether a reward program is still active (paying out).
+ *
+ * `duration`/`payouts` are protobuf `uint32` with `omitempty`, so a brand-new
+ * program that has not paid out yet serializes `payouts` as *absent* → `undefined`
+ * on the JS side. Coercing through `Number(x ?? 0)` makes the comparison robust to
+ * that (and to string-encoded values from REST), instead of `undefined < n` (false)
+ * silently dropping a fresh program.
+ */
+export function isRewardActive(reward: {
+  payouts?: number | string;
+  duration?: number | string;
+}): boolean {
+  const payouts = Number(reward.payouts ?? 0);
+  const duration = Number(reward.duration ?? 0);
+  return duration > 0 && payouts < duration;
+}
+
 /** Block-explorer base for BZE mainnet (chaintools). */
 const EXPLORER_BASE = "https://explorer.chaintools.tech/beezee";
 
@@ -146,6 +164,8 @@ export function explorerTxUrl(hash: string): string {
 export function denomLabel(denom: string): string {
   if (denom === "ubze") return "BZE";
   if (denom.startsWith("factory/")) return denom.split("/").pop() || denom;
+  // IBC denoms are long hashes — show a short, recognizable suffix.
+  if (denom.startsWith("ibc/")) return `IBC/${denom.slice(4, 10)}`;
   return denom;
 }
 

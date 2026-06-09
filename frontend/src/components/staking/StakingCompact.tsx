@@ -16,12 +16,16 @@ import {
   LuTriangleAlert,
   LuWrench,
   LuLockOpen,
+  LuSprout,
+  LuPlus,
 } from "react-icons/lu";
 import {
   formatAmount,
   ubzeToHuman,
   denomLabel,
   calcRewardsStakingPending,
+  calcRewardsStakingApr,
+  isRewardActive,
   sumDecCoins,
 } from "../../utils/stakingHelpers";
 import {
@@ -33,7 +37,8 @@ import { computeStakeHealth, type StakeIssue } from "../../utils/stakeHealth";
 import { useStakingTx } from "../../hooks/useStakingTx";
 import { PendingUnlocks } from "./PendingUnlocks";
 import { StakeModal } from "./modals/StakeModal";
-import type { StakingOverview } from "../../utils/stakingTypes";
+import { JoinRewardModal } from "./modals/JoinRewardModal";
+import type { StakingOverview, StakingReward } from "../../utils/stakingTypes";
 
 interface StakingCompactProps {
   data: StakingOverview;
@@ -158,6 +163,35 @@ export function StakingCompact({ data, apr, address, onReload }: StakingCompactP
     claimNativeRewards,
     claimRewardStaking,
   ]);
+
+  // --- earn-more (reward programs) ----------------------------------------
+
+  // Active reward programs the user can join, with a flag for ones already joined.
+  // This restores parity with dex.getbze.com (and the pre-rework view) where the
+  // default screen surfaced joinable programs, not just claimable rewards.
+  const joinedRewardIds = useMemo(
+    () => new Set(participants.map((p) => p.reward_id)),
+    [participants]
+  );
+
+  const earnPrograms = useMemo(
+    () =>
+      stakingRewards
+        .filter(isRewardActive)
+        .map((r) => ({ reward: r, joined: joinedRewardIds.has(r.reward_id) }))
+        // Surface not-yet-joined programs first; within each, highest APR first.
+        .sort((a, b) => {
+          if (a.joined !== b.joined) return a.joined ? 1 : -1;
+          const aprA = parseFloat(
+            calcRewardsStakingApr(a.reward.prize_amount, a.reward.duration, a.reward.staked_amount)
+          );
+          const aprB = parseFloat(
+            calcRewardsStakingApr(b.reward.prize_amount, b.reward.duration, b.reward.staked_amount)
+          );
+          return aprB - aprA;
+        }),
+    [stakingRewards, joinedRewardIds]
+  );
 
   // --- actions ------------------------------------------------------------
 
@@ -301,6 +335,36 @@ export function StakingCompact({ data, apr, address, onReload }: StakingCompactP
         )}
       </Box>
 
+      {/* Earn more — joinable reward programs */}
+      {earnPrograms.length > 0 && (
+        <Box
+          p="5"
+          bg="bg.panel"
+          borderWidth="1px"
+          borderColor="border.subtle"
+          borderRadius="lg"
+        >
+          <HStack gap="2" mb="3">
+            <Box color="green.500">{LuSprout({ size: 16 }) as React.ReactNode}</Box>
+            <Text fontSize="md" fontWeight="bold">
+              Earn more
+            </Text>
+          </HStack>
+
+          <VStack gap="2" align="stretch">
+            {earnPrograms.map(({ reward, joined }) => (
+              <EarnRow
+                key={reward.reward_id}
+                reward={reward}
+                joined={joined}
+                address={address}
+                onReload={onReload}
+              />
+            ))}
+          </VStack>
+        </Box>
+      )}
+
       {/* Pending unlocks (native unbonding + reward exits) */}
       <PendingUnlocks data={data} include="all" />
 
@@ -355,6 +419,76 @@ function SummaryCard({
         {unit}
       </Text>
     </Box>
+  );
+}
+
+// One joinable reward program: stake X → earn Y, with APR + Join action.
+function EarnRow({
+  reward,
+  joined,
+  address,
+  onReload,
+}: {
+  reward: StakingReward;
+  joined: boolean;
+  address: string;
+  onReload: () => void;
+}) {
+  const [showJoinModal, setShowJoinModal] = useState(false);
+  const stakeLabel = denomLabel(reward.staking_denom);
+  const prizeLabel = denomLabel(reward.prize_denom);
+  const apr = calcRewardsStakingApr(
+    reward.prize_amount,
+    reward.duration,
+    reward.staked_amount
+  );
+
+  return (
+    <HStack
+      justify="space-between"
+      p="3"
+      bg="bg.subtle"
+      borderRadius="md"
+      wrap="wrap"
+      gap="2"
+    >
+      <VStack gap="0" align="start" minW="0">
+        <Text fontSize="sm" fontWeight="medium">
+          Stake {stakeLabel} → earn {prizeLabel}
+        </Text>
+        <HStack gap="3">
+          <Text fontSize="xs" color="fg.muted">
+            APR: <Text as="span" color="green.500">{apr}%</Text>
+          </Text>
+          <Text fontSize="xs" color="fg.muted">
+            Pool: {formatAmount(ubzeToHuman(reward.staked_amount))} {stakeLabel}
+          </Text>
+        </HStack>
+      </VStack>
+
+      {joined ? (
+        <Text fontSize="xs" color="teal.500" fontWeight="medium">
+          Joined
+        </Text>
+      ) : (
+        <Button
+          size="xs"
+          colorPalette="teal"
+          variant="outline"
+          onClick={() => setShowJoinModal(true)}
+        >
+          {LuPlus({ size: 12 }) as React.ReactNode} Join
+        </Button>
+      )}
+
+      <JoinRewardModal
+        isOpen={showJoinModal}
+        onClose={() => setShowJoinModal(false)}
+        reward={reward}
+        address={address}
+        onSuccess={onReload}
+      />
+    </HStack>
   );
 }
 

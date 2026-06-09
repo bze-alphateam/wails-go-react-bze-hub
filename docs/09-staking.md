@@ -35,8 +35,23 @@ Hides validators entirely. Shows:
   aggregated into a single row; one row per reward program), each with its own
   **Claim** button, plus a **Claim all** button. This is the "claim all or one by
   one" behavior from the spec.
+- **Earn more** — the joinable reward programs (`x/rewards`). One row per active
+  program ("Stake X → earn Y", APR, pool size) with a **Join** button, or a
+  "Joined" marker for programs the user already participates in. Not-yet-joined
+  programs sort first, then by APR. This restores parity with dex.getbze.com (and
+  the pre-rework default view): the compact screen surfaces *opportunities*, not
+  just claimable balances. The section is hidden entirely when there are no active
+  programs. (Reward-program detail/exit still lives in Advanced.)
 - **Stake** — one button that auto-splits across recommended validators (no
   validator picking).
+
+> **Active-program test.** Both views decide "is this program still paying out?"
+> through the shared `isRewardActive(reward)` helper (`stakingHelpers.ts`), not an
+> inline `payouts < duration`. `duration`/`payouts` are protobuf `uint32` with
+> `omitempty`, so a brand-new program that hasn't paid out yet serializes `payouts`
+> as *absent* → `undefined`; a raw `undefined < duration` is `false` and silently
+> dropped the program. The helper coerces through `Number(x ?? 0)` (also tolerating
+> REST's string-encoded values) and is unit-tested in `isRewardActive.test.ts`.
 
 ### Advanced view
 
