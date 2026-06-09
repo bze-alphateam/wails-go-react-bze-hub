@@ -11,15 +11,19 @@ import {
 import { LuChevronRight, LuChevronDown, LuPlus } from "react-icons/lu";
 import { formatAmount, ubzeToHuman, calcRewardsStakingApr, calcRewardsStakingPending } from "../../utils/stakingHelpers";
 import { JoinRewardModal } from "./modals/JoinRewardModal";
+import { PendingUnlocks } from "./PendingUnlocks";
 import type {
   StakingReward,
   StakingRewardParticipant,
+  PendingUnlockParticipant,
   GroupedRewardStaking,
 } from "../../utils/stakingTypes";
 
 interface RewardsStakingSectionProps {
   stakingRewards: StakingReward[];
   participants: StakingRewardParticipant[];
+  pendingUnlocks: PendingUnlockParticipant[];
+  currentHourEpoch?: number;
   address: string;
   onReload: () => void;
 }
@@ -27,6 +31,8 @@ interface RewardsStakingSectionProps {
 export function RewardsStakingSection({
   stakingRewards,
   participants,
+  pendingUnlocks,
+  currentHourEpoch,
   address,
   onReload,
 }: RewardsStakingSectionProps) {
@@ -148,6 +154,13 @@ export function RewardsStakingSection({
           })}
         </VStack>
       )}
+
+      {/* Reward-program exits pending unlock */}
+      <PendingUnlocks
+        data={{ pendingUnlocks, currentHourEpoch }}
+        include="reward"
+        variant="bare"
+      />
     </Box>
   );
 }

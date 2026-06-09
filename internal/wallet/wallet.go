@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math/rand"
 
+	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+
 	"github.com/bze-alphateam/bze-hub/internal/config"
 	"github.com/bze-alphateam/bze-hub/internal/crypto"
 )
@@ -185,27 +187,17 @@ func (w *Wallet) ExportMnemonic(label string, password string) (string, error) {
 	return GetSecret(MnemonicKey(label), password)
 }
 
-// SignAminoTx signs an amino transaction using the PK for the given address.
-// Fetches only the PK from keyring, signs, zeros PK immediately.
-func (w *Wallet) SignAminoTx(address string, password string, signDocJSON string) (*AminoSignResponse, error) {
+// PrivKey returns the secp256k1 private key for the given address, fetched from
+// the keyring. The caller MUST zero the returned key's bytes after use
+// (e.g. defer crypto.SecureZero(privKey.Key)).
+func (w *Wallet) PrivKey(address string, password string) (*secp256k1.PrivKey, error) {
 	pkHex, err := GetSecret(PKKey(address), password)
 	if err != nil {
 		return nil, fmt.Errorf("get pk for %s: %w", address, err)
 	}
 	defer crypto.SecureZero([]byte(pkHex))
 
-	return SignAmino(pkHex, signDocJSON)
-}
-
-// SignDirectTx signs a direct (protobuf) transaction using the PK for the given address.
-func (w *Wallet) SignDirectTx(address string, password string, signDocBytes []byte) (*DirectSignResponse, error) {
-	pkHex, err := GetSecret(PKKey(address), password)
-	if err != nil {
-		return nil, fmt.Errorf("get pk for %s: %w", address, err)
-	}
-	defer crypto.SecureZero([]byte(pkHex))
-
-	return SignDirect(pkHex, signDocBytes)
+	return PrivKeyFromHex(pkHex)
 }
 
 // DeleteAccount removes an account and its PK from keyring.

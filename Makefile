@@ -23,7 +23,7 @@ test-fe:
 	@if ! command -v npm >/dev/null 2>&1; then \
 		echo "    npm not found — skipping frontend tests"; \
 	elif [ "$$(cd frontend && npm pkg get scripts.test 2>/dev/null)" != "{}" ]; then \
-		cd frontend && npm test; \
+		cd frontend && { [ -d node_modules/vitest ] || npm install; } && npm test; \
 	else \
 		echo "    no frontend \"test\" script yet — skipping (add one to frontend/package.json to enable)"; \
 	fi

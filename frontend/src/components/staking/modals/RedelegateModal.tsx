@@ -11,6 +11,7 @@ import {
   NativeSelect,
 } from "@chakra-ui/react";
 import { humanToUbze, ubzeToHuman, formatAmount } from "../../../utils/stakingHelpers";
+import { isValidatorHealthy } from "../../../utils/stakeHealth";
 import { useStakingTx } from "../../../hooks/useStakingTx";
 import type { Validator } from "../../../utils/stakingTypes";
 
@@ -40,9 +41,11 @@ export function RedelegateModal({
   const [error, setError] = useState("");
   const { redelegate, isSubmitting } = useStakingTx(address);
 
+  // Only healthy validators (bonded + not jailed) are valid redelegation targets —
+  // same definition used by the compact-view auto-fix, so the two never disagree.
   const otherValidators = useMemo(
     () => validators.filter(
-      (v) => v.operator_address !== srcValidatorAddress && v.status === "BOND_STATUS_BONDED"
+      (v) => v.operator_address !== srcValidatorAddress && isValidatorHealthy(v)
     ),
     [validators, srcValidatorAddress]
   );
@@ -74,12 +77,11 @@ export function RedelegateModal({
     }
 
     setError("");
+    // Outcome surfaces as a global toast; close the modal once submitted.
     const success = await redelegate(srcValidatorAddress, dstValidator, ubze);
     if (success) {
-      handleClose();
       onSuccess();
-    } else {
-      setError("Transaction failed");
+      handleClose();
     }
   };
 

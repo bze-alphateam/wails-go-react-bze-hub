@@ -58,13 +58,11 @@ export function UndelegateModal({
     }
 
     setError("");
+    // Outcome surfaces as a global toast; close the modal once submitted.
     const success = await undelegate(validatorAddress, ubze);
     if (success) {
-      setAmount("");
-      handleClose();
       onSuccess();
-    } else {
-      setError("Transaction failed");
+      handleClose();
     }
   };
 

@@ -49,13 +49,12 @@ export function DelegateModal({
 
     const ubze = humanToUbze(amount);
     setError("");
+    // The outcome (success + explorer link, or failure + raw_log) surfaces as a
+    // global toast; close the modal once the tx is submitted.
     const success = await delegate(validatorAddress, ubze);
     if (success) {
-      setAmount("");
-      handleClose();
       onSuccess();
-    } else {
-      setError("Transaction failed");
+      handleClose();
     }
   };
 

@@ -51,6 +51,31 @@ func (c *Client) GetDelegations(address string) ([]stakingtypes.DelegationRespon
 	return resp.GetDelegationResponses(), nil
 }
 
+// GetDelegatorValidators returns the full validator objects for every validator
+// the address has delegated to. Unlike GetValidators("BOND_STATUS_BONDED"), this
+// includes jailed/unbonded validators — which is exactly what stake-health
+// detection needs (a jailed validator no longer pays rewards but the delegation
+// still exists).
+func (c *Client) GetDelegatorValidators(address string) ([]stakingtypes.Validator, error) {
+	conn, err := c.GetConnection()
+	if err != nil {
+		return nil, err
+	}
+
+	qc := stakingtypes.NewQueryClient(conn)
+	resp, err := qc.DelegatorValidators(context.Background(), &stakingtypes.QueryDelegatorValidatorsRequest{
+		DelegatorAddr: address,
+		Pagination: &query.PageRequest{
+			Limit: 1000,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.GetValidators(), nil
+}
+
 // GetUnbondingDelegations returns all unbonding delegations for an address.
 func (c *Client) GetUnbondingDelegations(address string) ([]stakingtypes.UnbondingDelegation, error) {
 	conn, err := c.GetConnection()

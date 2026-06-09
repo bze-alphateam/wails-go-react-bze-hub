@@ -110,10 +110,10 @@ Tests are run through the root `Makefile` (single entrypoint, so we don't run `g
 make test          # Go + frontend tests
 make test-go       # Go unit tests only (fast — use after each change)
 make test-go-race  # Go tests with the race detector
-make test-fe       # frontend tests (auto-skips until a "test" script exists in frontend/package.json)
+make test-fe       # frontend tests (Vitest)
 ```
 
-Frontend tests aren't set up yet; `make test-fe` skips gracefully and will start running them automatically once a `test` script is added (Vitest is the planned framework for the Vite/React frontend).
+Frontend tests run on **Vitest** (`frontend/package.json` → `test`: `vitest run`). `make test-fe` installs the frontend deps automatically the first time (when `node_modules/vitest` is missing) and then runs the suite. Pure-logic units live next to their source as `*.test.ts` (e.g. `src/utils/stakeHealth.test.ts`); they run in the Node environment — no DOM. Component/DOM tests can switch to jsdom later via `vitest.config.ts`.
 
 ## Documentation
 
@@ -127,6 +127,8 @@ Frontend tests aren't set up yet; `make test-fe` skips gracefully and will start
 | [06-security.md](06-security.md) | Approval flows, permission model |
 | [07-configuration.md](07-configuration.md) | Dashboard UI, settings, network switching |
 | [08-build-distribution.md](08-build-distribution.md) | Cross-platform builds, CI/CD, packaging |
+| [09-staking.md](09-staking.md) | Staking page: compact/advanced views, validator-pick rules, stake-health |
+| [10-notifications.md](10-notifications.md) | App-wide notification system: `notify` API, toast types, position, extending |
 
 _Native dApp UI design docs: TBD (to replace the removed iframe/bridge `04-ui-shell.md`)._
 

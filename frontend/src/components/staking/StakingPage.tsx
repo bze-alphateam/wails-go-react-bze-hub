@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { Box, Text, Center, Spinner, VStack } from "@chakra-ui/react";
+import { useMemo, useState } from "react";
+import { Box, Text, Center, Spinner, VStack, HStack, Button } from "@chakra-ui/react";
 import { useStakingData } from "../../hooks/useStakingData";
 import { useStakingTx } from "../../hooks/useStakingTx";
 import {
@@ -8,17 +8,37 @@ import {
   sumDecCoins,
 } from "../../utils/stakingHelpers";
 import { StakingStatsBar } from "./StakingStatsBar";
-import { NativeStakingSection } from "./NativeStakingSection";
+import { StakingCompact } from "./StakingCompact";
+import { NativeStakingAdvanced } from "./NativeStakingAdvanced";
 import { RewardsStakingSection } from "./RewardsStakingSection";
+import type { Validator } from "../../utils/stakingTypes";
 
 interface StakingPageProps {
   address: string;
   proxyTarget: string;
 }
 
+type StakingView = "compact" | "advanced";
+
+const VIEW_STORAGE_KEY = "bze-staking-view";
+
+function getInitialView(): StakingView {
+  if (typeof localStorage !== "undefined") {
+    const stored = localStorage.getItem(VIEW_STORAGE_KEY);
+    if (stored === "compact" || stored === "advanced") return stored;
+  }
+  return "compact";
+}
+
 export function StakingPage({ address, proxyTarget }: StakingPageProps) {
   const { data, isLoading, error, reload } = useStakingData(address, proxyTarget);
   const { claimAll, isSubmitting } = useStakingTx(address);
+
+  const [view, setViewState] = useState<StakingView>(getInitialView);
+  const setView = (v: StakingView) => {
+    if (typeof localStorage !== "undefined") localStorage.setItem(VIEW_STORAGE_KEY, v);
+    setViewState(v);
+  };
 
   // Derived values
   const apr = useMemo(() => {
@@ -38,9 +58,7 @@ export function StakingPage({ address, proxyTarget }: StakingPageProps) {
   const totalDelegatedUbze = useMemo(() => {
     if (!data?.delegations) return "0";
     let total = 0n;
-    for (const del of data.delegations) {
-      total += BigInt(del.balance.amount || "0");
-    }
+    for (const del of data.delegations) total += BigInt(del.balance.amount || "0");
     return total.toString();
   }, [data]);
 
@@ -49,47 +67,46 @@ export function StakingPage({ address, proxyTarget }: StakingPageProps) {
     return sumDecCoins(data.rewards.total, "ubze");
   }, [data]);
 
-  const validatorRewards = useMemo(() => {
-    return data?.rewards?.rewards || [];
+  const validatorRewards = useMemo(() => data?.rewards?.rewards || [], [data]);
+  const rewardValidators = useMemo(
+    () => validatorRewards.map((r) => r.validator_address),
+    [validatorRewards]
+  );
+
+  // Validators bonded list merged with the (possibly jailed) validators the user
+  // delegated to — so the advanced table shows a jailed delegation, not a gap.
+  const mergedValidators = useMemo<Validator[]>(() => {
+    const m = new Map<string, Validator>();
+    for (const v of data?.validators || []) m.set(v.operator_address, v);
+    for (const v of data?.delegatedValidators || []) {
+      if (!m.has(v.operator_address)) m.set(v.operator_address, v);
+    }
+    return Array.from(m.values());
   }, [data]);
 
-  const rewardValidators = useMemo(() => {
-    return validatorRewards.map((r) => r.validator_address);
-  }, [validatorRewards]);
-
-  // For stats bar: sum native + rewards staking total staked
   const totalStakedUbze = useMemo(() => {
     let total = BigInt(totalDelegatedUbze);
-    // Add rewards staking amounts
     if (data?.rewardParticipants) {
       for (const p of data.rewardParticipants) {
-        // Only count ubze denominated stakes
         const reward = data.stakingRewards?.find((r) => r.reward_id === p.reward_id);
-        if (reward?.staking_denom === "ubze") {
-          total += BigInt(p.amount || "0");
-        }
+        if (reward?.staking_denom === "ubze") total += BigInt(p.amount || "0");
       }
     }
     return total.toString();
   }, [totalDelegatedUbze, data]);
 
-  // For stats bar: primary reward + count of other denoms
   const rewardsSummary = useMemo(() => {
     const hasNativeRewards = BigInt(totalNativeRewardsUbze.split(".")[0] || "0") > 0n;
-    // Count unique non-ubze reward denoms from rewards staking
-    const otherDenoms = new Set<string>();
-    // TODO: calculate actual pending rewards from rewards staking
     return {
       primaryReward: hasNativeRewards
         ? { amount: totalNativeRewardsUbze, denom: "ubze" }
         : null,
-      otherCount: otherDenoms.size,
+      otherCount: 0,
       hasRewards: hasNativeRewards,
     };
   }, [totalNativeRewardsUbze]);
 
   const handleClaimAll = async () => {
-    // Collect reward IDs where user has active participation
     const rewardIds = data?.rewardParticipants?.map((p) => p.reward_id) || [];
     const success = await claimAll(rewardValidators, rewardIds);
     if (success) reload();
@@ -114,7 +131,7 @@ export function StakingPage({ address, proxyTarget }: StakingPageProps) {
           {error}
         </Text>
         <Box mt="2">
-          <button onClick={reload}>Retry</button>
+          <Button size="sm" onClick={reload}>Retry</Button>
         </Box>
       </Center>
     );
@@ -131,39 +148,84 @@ export function StakingPage({ address, proxyTarget }: StakingPageProps) {
 
   return (
     <Box h="100%" overflowY="auto" p="4">
-      <VStack gap="0" align="stretch" maxW="1000px" mx="auto">
-        {/* Stats Bar */}
-        <StakingStatsBar
-          totalStakedUbze={totalStakedUbze}
-          primaryReward={rewardsSummary.primaryReward}
-          otherRewardsCount={rewardsSummary.otherCount}
-          onClaimAll={handleClaimAll}
-          isClaimingAll={isSubmitting}
-          hasRewards={rewardsSummary.hasRewards}
-        />
+      <VStack gap="4" align="stretch" maxW="1000px" mx="auto">
+        {/* Header + view toggle */}
+        <HStack justify="space-between">
+          <Text fontSize="lg" fontWeight="bold">
+            Staking
+          </Text>
+          <ViewToggle value={view} onChange={setView} />
+        </HStack>
 
-        {/* Native Staking Section */}
-        <NativeStakingSection
-          validators={data?.validators || []}
-          delegations={data?.delegations || []}
-          unbonding={data?.unbonding || []}
-          validatorRewards={validatorRewards}
-          totalRewardsUbze={totalNativeRewardsUbze}
-          totalDelegatedUbze={totalDelegatedUbze}
-          apr={apr}
-          unbondingDays={unbondingDays}
-          address={address}
-          onReload={reload}
-        />
+        {view === "compact" ? (
+          <StakingCompact
+            data={data || {}}
+            apr={apr}
+            address={address}
+            onReload={reload}
+          />
+        ) : (
+          <>
+            <StakingStatsBar
+              totalStakedUbze={totalStakedUbze}
+              primaryReward={rewardsSummary.primaryReward}
+              otherRewardsCount={rewardsSummary.otherCount}
+              onClaimAll={handleClaimAll}
+              isClaimingAll={isSubmitting}
+              hasRewards={rewardsSummary.hasRewards}
+            />
 
-        {/* Rewards Staking Section */}
-        <RewardsStakingSection
-          stakingRewards={data?.stakingRewards || []}
-          participants={data?.rewardParticipants || []}
-          address={address}
-          onReload={reload}
-        />
+            <NativeStakingAdvanced
+              validators={mergedValidators}
+              delegations={data?.delegations || []}
+              unbonding={data?.unbonding || []}
+              validatorRewards={validatorRewards}
+              totalRewardsUbze={totalNativeRewardsUbze}
+              totalDelegatedUbze={totalDelegatedUbze}
+              apr={apr}
+              unbondingDays={unbondingDays}
+              address={address}
+              onReload={reload}
+              onSwitchToSimple={() => setView("compact")}
+            />
+
+            <RewardsStakingSection
+              stakingRewards={data?.stakingRewards || []}
+              participants={data?.rewardParticipants || []}
+              pendingUnlocks={data?.pendingUnlocks || []}
+              currentHourEpoch={data?.currentHourEpoch}
+              address={address}
+              onReload={reload}
+            />
+          </>
+        )}
       </VStack>
     </Box>
+  );
+}
+
+// Segmented Compact | Advanced control.
+function ViewToggle({
+  value,
+  onChange,
+}: {
+  value: StakingView;
+  onChange: (v: StakingView) => void;
+}) {
+  return (
+    <HStack gap="0" bg="bg.subtle" borderRadius="md" p="1">
+      {(["compact", "advanced"] as const).map((v) => (
+        <Button
+          key={v}
+          size="xs"
+          variant={value === v ? "solid" : "ghost"}
+          colorPalette={value === v ? "teal" : "gray"}
+          onClick={() => onChange(v)}
+          textTransform="capitalize"
+        >
+          {v}
+        </Button>
+      ))}
+    </HStack>
   );
 }

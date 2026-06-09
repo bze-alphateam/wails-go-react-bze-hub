@@ -817,7 +817,7 @@ Both `config.toml` and `app.toml` are fetched from `bze-configs` at init time (s
 The fields the Hub writes dynamically into `config.toml` after fetching it are:
 - The `[statesync]` section — `enable`, `rpc_servers`, and `trust_height`/`trust_hash` calculated from the current chain state (see section 5).
 - `moniker`, the P2P/RPC `laddr` ports.
-- `log_level` — overridden from the `NodeLogLevel` setting (default `"info"`). `bze-configs` ships `log_level = "error"`, which hides state-sync discovery/progress logs; the override restores visibility. Set `NodeLogLevel` to `""` to leave the fetched value untouched, or `"error"` for a quiet node. (`app.toml` only gets the API/gRPC enable + address rewrites.)
+- `log_level` — set from the `NodeLogLevel` setting (default `"error"` — a quiet node, **independent of the Hub's own `LogLevel`**, so node logs don't flood the app logs). Applied not only at init/resync but on **every startup** via `ApplyNodeLogLevel`, so changing the setting takes effect on the next launch without a re-init. Set `NodeLogLevel` to `"info"`/`"debug"` to restore state-sync discovery/progress visibility when debugging, or `""` to leave the fetched `bze-configs` value untouched. (`app.toml` only gets the API/gRPC enable + address rewrites.)
 
 Key settings that the `bze-configs` app.toml must include for the Hub to work:
 

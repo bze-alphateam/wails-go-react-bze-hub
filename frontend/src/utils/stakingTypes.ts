@@ -136,6 +136,11 @@ export interface PendingUnlockParticipant {
 // Combined overview returned by GetStakingOverview
 export interface StakingOverview {
   validators?: Validator[];
+  /** Full validator objects for validators the user delegated to — includes
+   *  jailed/unbonded ones (the bonded-only `validators` list does not). */
+  delegatedValidators?: Validator[];
+  /** Liquid (spendable) ubze balance: { denom, amount }. */
+  availableBalance?: Coin;
   delegations?: DelegationResponse[];
   unbonding?: UnbondingDelegation[];
   rewards?: DelegationRewardsResponse;
@@ -146,6 +151,23 @@ export interface StakingOverview {
   stakingRewards?: StakingReward[];
   rewardParticipants?: StakingRewardParticipant[];
   pendingUnlocks?: PendingUnlockParticipant[];
+  /** Current "hour" epoch number — reward-program unlocks are scheduled on it, so
+   *  (unlockEpoch − currentHourEpoch) ≈ hours remaining on a pending reward unlock. */
+  currentHourEpoch?: number;
+}
+
+/** A unified "funds on their way out" row for the pending-unlocks UI. */
+export interface PendingUnlockRow {
+  key: string;
+  kind: "native" | "reward";
+  /** Short description, e.g. "Undelegating" or "Exiting BZE program". */
+  title: string;
+  /** Human-readable amount (already converted from base units). */
+  amountHuman: string;
+  /** Display denom label, e.g. "BZE". */
+  denom: string;
+  /** When it becomes available, e.g. "Ready", "~3h", "12d 4h". */
+  when: string;
 }
 
 // Computed/derived types for UI

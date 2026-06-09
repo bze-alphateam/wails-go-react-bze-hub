@@ -4,6 +4,7 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { system } from "./theme";
 import "./style.css";
 import App from "./App";
+import { NotificationToaster } from "./notifications";
 
 const container = document.getElementById("root");
 const root = createRoot(container!);
@@ -12,6 +13,7 @@ root.render(
   <React.StrictMode>
     <ChakraProvider value={system}>
       <App />
+      <NotificationToaster />
     </ChakraProvider>
   </React.StrictMode>
 );

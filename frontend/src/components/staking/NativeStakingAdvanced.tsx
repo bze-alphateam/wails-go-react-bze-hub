@@ -13,6 +13,7 @@ import { formatAmount, ubzeToHuman, truncateAddress } from "../../utils/stakingH
 import { DelegateModal } from "./modals/DelegateModal";
 import { UndelegateModal } from "./modals/UndelegateModal";
 import { RedelegateModal } from "./modals/RedelegateModal";
+import { PendingUnlocks } from "./PendingUnlocks";
 import type {
   Validator,
   DelegationResponse,
@@ -44,6 +45,7 @@ interface ModalState {
 export function NativeStakingAdvanced({
   validators,
   delegations,
+  unbonding,
   validatorRewards,
   unbondingDays,
   address,
@@ -110,7 +112,7 @@ export function NativeStakingAdvanced({
       <HStack justify="space-between" mb="4">
         <HStack gap="2">
           <Button size="xs" variant="ghost" onClick={onSwitchToSimple}>
-            {LuChevronLeft({}) as React.ReactNode} Simple
+            {LuChevronLeft({}) as React.ReactNode} Compact
           </Button>
           <Text fontSize="md" fontWeight="bold">
             Native Staking — Validators
@@ -218,6 +220,9 @@ export function NativeStakingAdvanced({
           </Table.Body>
         </Table.Root>
       </Box>
+
+      {/* Unbonding delegations in progress */}
+      <PendingUnlocks data={{ unbonding }} include="native" variant="bare" title="Unbonding" />
 
       {/* Modals */}
       <DelegateModal

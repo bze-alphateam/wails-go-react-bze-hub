@@ -59,13 +59,11 @@ export function JoinRewardModal({
     }
 
     setError("");
+    // Outcome surfaces as a global toast; close the modal once submitted.
     const success = await joinRewardStaking(reward.reward_id, stakeAmount, stakingDenom);
     if (success) {
-      setAmount("");
-      handleClose();
       onSuccess();
-    } else {
-      setError("Transaction failed");
+      handleClose();
     }
   };
 

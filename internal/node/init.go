@@ -103,6 +103,37 @@ func ReInitConfigs(cfg *RemoteConfig, ports PortSet, logLevel string) error {
 	return nil
 }
 
+// ApplyNodeLogLevel ensures an already-initialized node's config.toml log_level
+// matches the desired level. Unlike postProcessConfig (which only runs on init /
+// re-sync), this runs on every startup, so changing the NodeLogLevel setting
+// takes effect on the next launch without a full re-init or re-sync. An empty
+// level leaves the bze-configs value untouched.
+func ApplyNodeLogLevel(logLevel string) error {
+	if logLevel == "" {
+		return nil
+	}
+	return setLogLevelInFile(filepath.Join(NodeHome(), "config", "config.toml"), logLevel)
+}
+
+// setLogLevelInFile rewrites the log_level in a config.toml, writing only when it
+// actually changes. Split out from ApplyNodeLogLevel so it is unit-testable.
+func setLogLevelInFile(configPath, logLevel string) error {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+	content := string(data)
+	updated := replaceTOMLValue(content, "log_level", fmt.Sprintf(`"%s"`, logLevel))
+	if updated == content {
+		return nil
+	}
+	if err := os.WriteFile(configPath, []byte(updated), 0600); err != nil {
+		return err
+	}
+	logging.Info("node", "node log_level set to %q", logLevel)
+	return nil
+}
+
 // --- Config post-processing ---
 
 func postProcessConfig(configPath string, cfg *RemoteConfig, ports PortSet, logLevel string) error {
@@ -112,8 +143,8 @@ func postProcessConfig(configPath string, cfg *RemoteConfig, ports PortSet, logL
 	}
 	content := string(data)
 
-	// Override the node log level (bze-configs ships "error", which hides
-	// state-sync discovery logs). Empty string leaves the fetched value as-is.
+	// Set the node log level (separate from the Hub's own LogLevel). Empty string
+	// leaves the bze-configs value untouched.
 	if logLevel != "" {
 		content = replaceTOMLValue(content, "log_level", fmt.Sprintf(`"%s"`, logLevel))
 		logging.Info("node", "log_level: %s", logLevel)

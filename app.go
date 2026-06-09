@@ -320,6 +320,13 @@ func (a *App) setupNode(ctx context.Context) {
 		logging.Debug("app", "node already initialized at %s", node.NodeHome())
 	}
 
+	// Keep the node log level in sync with the setting on every startup, so
+	// changing it takes effect without a re-init/resync (the node defaults to
+	// "error" — quiet — independent of the Hub's own log level).
+	if err := node.ApplyNodeLogLevel(a.settings.NodeLogLevel); err != nil {
+		logging.Error("app", "failed to apply node log level: %v", err)
+	}
+
 	// 6. Write instance.json
 	inst := node.CreateInstance(ports)
 	if err := node.SaveInstance(inst); err != nil {
@@ -738,32 +745,6 @@ func (a *App) Unlock(password string) error {
 	}
 	a.password = password
 	return nil
-}
-
-// --- Wallet signing (called by frontend) ---
-
-// SignAmino signs an amino transaction. Returns the signed response.
-func (a *App) SignAmino(chainId string, signer string, signDocJSON string) (map[string]interface{}, error) {
-	logging.Info("wallet", "signAmino request from %s for signer %s", chainId, signer)
-
-	password := a.password
-	resp, err := a.wallet.SignAminoTx(signer, password, signDocJSON)
-	if err != nil {
-		logging.Error("wallet", "signAmino failed: %v", err)
-		return nil, fmt.Errorf("signing failed: %w", err)
-	}
-
-	logging.Info("wallet", "signAmino success for %s", signer)
-
-	respBytes, err := json.Marshal(resp)
-	if err != nil {
-		return nil, fmt.Errorf("marshal response: %w", err)
-	}
-	var result map[string]interface{}
-	if err := json.Unmarshal(respBytes, &result); err != nil {
-		return nil, fmt.Errorf("unmarshal response: %w", err)
-	}
-	return result, nil
 }
 
 // --- Settings ---

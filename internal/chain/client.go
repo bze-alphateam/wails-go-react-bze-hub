@@ -12,9 +12,14 @@ import (
 
 	"github.com/bze-alphateam/bze-hub/internal/logging"
 	"github.com/bze-alphateam/bze-hub/internal/state"
+	rewardstypes "github.com/bze-alphateam/bze/x/rewards/types"
+	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
 	"github.com/cosmos/cosmos-sdk/std"
+	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
+	disttypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
@@ -31,7 +36,9 @@ type Client struct {
 	appState   *state.AppState
 
 	// Cosmos SDK codec for proper JSON marshaling of protobuf types
-	Cdc        *codec.ProtoCodec
+	Cdc *codec.ProtoCodec
+	// TxConfig builds/encodes/signs transactions (SIGN_MODE_DIRECT)
+	TxConfig   client.TxConfig
 	httpClient *http.Client
 
 	mu        sync.Mutex
@@ -42,11 +49,17 @@ type Client struct {
 // NewClient creates a new chain gRPC client with a properly configured Cosmos SDK codec.
 // restProxyAddr is used as fallback for endpoints that have protobuf type incompatibilities (e.g. mint AnnualProvisions).
 func NewClient(localGRPCAddr string, publicGRPCAddr string, restProxyAddr string, appState *state.AppState) *Client {
-	// Create interface registry and register all standard SDK types
-	// This is required so that codec/types.Any fields (like consensus_pubkey) can marshal to JSON.
+	// Create interface registry and register all types we query OR sign.
+	// std covers base sdk.Msg/Tx + crypto pubkeys; the rest are the modules
+	// whose messages we build (staking, distribution) and query/build (rewards).
+	// cryptocodec is registered explicitly so secp256k1 pubkeys pack into the
+	// tx's SignerInfo Any.
 	ir := codectypes.NewInterfaceRegistry()
 	std.RegisterInterfaces(ir)
+	cryptocodec.RegisterInterfaces(ir)
 	stakingtypes.RegisterInterfaces(ir)
+	disttypes.RegisterInterfaces(ir)
+	rewardstypes.RegisterInterfaces(ir)
 
 	cdc := codec.NewProtoCodec(ir)
 
@@ -56,6 +69,7 @@ func NewClient(localGRPCAddr string, publicGRPCAddr string, restProxyAddr string
 		restAddr:   restProxyAddr,
 		appState:   appState,
 		Cdc:        cdc,
+		TxConfig:   authtx.NewTxConfig(cdc, authtx.DefaultSignModes),
 		httpClient: &http.Client{Timeout: 15 * time.Second},
 	}
 }
