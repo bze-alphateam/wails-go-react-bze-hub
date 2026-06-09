@@ -9,9 +9,11 @@ interface DashboardProps {
   label: string;
   proxyTarget: string;
   onNavigate: (tabId: string) => void;
+  /** Whether the dashboard tab is currently visible (gates article polling). */
+  active: boolean;
 }
 
-export function Dashboard({ address, label, proxyTarget, onNavigate }: DashboardProps) {
+export function Dashboard({ address, label, proxyTarget, onNavigate, active }: DashboardProps) {
   const [showAbout, setShowAbout] = useState(false);
 
   useEffect(() => {
@@ -99,7 +101,7 @@ export function Dashboard({ address, label, proxyTarget, onNavigate }: Dashboard
         borderColor="border"
         overflowY="auto"
       >
-        <ArticleList />
+        <ArticleList active={active} />
       </Box>
     </HStack>
   );

@@ -50,18 +50,37 @@ of vanishing.
 ## Validator-pick rules (compact auto-staking + auto-fix)
 
 The compact view never asks the user to choose a validator. The rules live in
-`frontend/src/utils/validatorScoring.ts` and are the single source of truth:
+`frontend/src/utils/validatorScoring.ts` (the single source of truth) and are a
+small, explainable **weighted model** rather than a single heuristic:
 
-1. **Filter** — only `BOND_STATUS_BONDED` and **not jailed** validators are
-   eligible.
-2. **Score** — `score = (1 / tokens) * multiplier`. Lower voting power ⇒ higher
-   score, which spreads stake toward smaller validators for decentralization.
-   `multiplier` defaults to `1.0` with optional per-validator overrides (reserved
-   for a future remote scoring config).
+1. **Filter** — eligible = `BOND_STATUS_BONDED` && not jailed && commission ≤
+   `maxCommission` (default `0.5`). The commission cap removes extractive
+   validators; if it would empty the set it's dropped (fallback to all active),
+   so a pick is always possible.
+2. **Score** — a weighted blend of two factors, each normalized to `[0,1]`
+   **relative to the eligible set** so the weights are directly comparable
+   (defaults `commission: 0.6`, `votingPower: 0.4`):
+   - **commission** — min-max across the set (cheapest → 1, dearest → 0). Guarded:
+     when all commissions are within ~1% it's treated as neutral (all 1) so it
+     doesn't nitpick near-identical rates. This is the only factor that affects
+     the user's actual returns.
+   - **votingPower** — rank-based (smallest validator → 1, largest → 0). A
+     decentralization/resilience signal; it does **not** affect APR.
+   Final `score = (weighted blend) × multiplier`, where `multiplier` defaults to
+   `1.0` with optional per-validator overrides (`customMultipliers`, reserved for a
+   future remote scoring config). Ties break toward the smaller validator.
 3. **Select** — take the top `N` (default `3`) for a new stake; take the top `1`
    when auto-fixing a broken delegation.
 4. **Split** — divide the amount equally across the selected validators;
    remainder goes to the first.
+
+The model is pure and unit-tested (`validatorScoring.test.ts`): eligibility +
+commission cap/fallback, decentralization on equal commission, commission
+pondering (a meaningfully cheaper mid-size validator beats a tiny expensive one),
+the near-equal-commission neutral guard, and custom multipliers. Quality signals
+that need extra chain queries (uptime, slashing history, self-bond) are
+intentionally out of scope for now; the `weights` object makes adding a factor a
+localized change.
 
 ## Stake-health rules (`frontend/src/utils/stakeHealth.ts`)
 

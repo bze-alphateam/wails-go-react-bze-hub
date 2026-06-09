@@ -140,6 +140,7 @@ function App() {
             label={activeLabel}
             proxyTarget={proxyTarget}
             onNavigate={handleTabChange}
+            active={activeTab === "dashboard"}
           />
         </Box>
 

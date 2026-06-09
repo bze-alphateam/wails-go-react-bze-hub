@@ -38,7 +38,10 @@ function timeAgo(unixStr: string): string {
   return new Date(ts * 1000).toLocaleDateString();
 }
 
-export function ArticleList() {
+/** Articles refresh interval while the dashboard is visible. */
+const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
+export function ArticleList({ active }: { active: boolean }) {
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [showInfo, setShowInfo] = useState(false);
@@ -49,12 +52,15 @@ export function ArticleList() {
     return () => clearTimeout(timer);
   }, [showInfo]);
 
+  // Poll only while the dashboard is visible: fetch immediately on (re)open, then
+  // every 5 minutes. When hidden the interval is cleared so we don't fetch in the
+  // background (the dashboard stays mounted behind other tabs).
   useEffect(() => {
+    if (!active) return;
     loadArticles();
-    // Refresh every 5 minutes
-    const interval = setInterval(loadArticles, 5 * 60 * 1000);
+    const interval = setInterval(loadArticles, REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, []);
+  }, [active]);
 
   async function loadArticles() {
     try {
