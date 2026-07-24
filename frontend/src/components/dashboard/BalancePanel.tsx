@@ -2,12 +2,20 @@ import { useState, useEffect, useRef } from "react";
 import {
   VStack, HStack, Text, Heading, Box, IconButton, SimpleGrid,
 } from "@chakra-ui/react";
+import BigNumber from "bignumber.js";
 import {
   LuRefreshCw, LuGlobe, LuBookOpen, LuMessageCircle, LuNewspaper,
   LuHandshake, LuWrench, LuChartColumn, LuFlame, LuLock, LuExternalLink,
   LuInfo,
 } from "react-icons/lu";
-import { GetAllBalances, GetBzePrice, OpenURL } from "../../../wailsjs/go/main/App";
+import { GetAllBalances, OpenURL } from "../../../wailsjs/go/main/App";
+import { useAssets } from "../../hooks/useAssets";
+import { TokenLogo } from "../TokenLogo";
+import { prettyAmount, uAmountToBigNumberAmount, toBigNumber } from "../../utils/amount";
+import { formatUsdAmount } from "../../utils/formatter";
+
+const NATIVE_DENOM = "ubze";
+const NATIVE_DECIMALS = 6;
 
 interface Props {
   address: string;
@@ -18,12 +26,15 @@ interface Props {
 }
 
 function formatBze(ubzeAmount: string): string {
-  const num = BigInt(ubzeAmount || "0");
-  const whole = num / BigInt(1_000_000);
-  const frac = num % BigInt(1_000_000);
-  const fracStr = frac.toString().padStart(6, "0").replace(/0+$/, "");
-  if (fracStr === "") return whole.toLocaleString();
-  return `${whole.toLocaleString()}.${fracStr}`;
+  return prettyAmount(uAmountToBigNumberAmount(ubzeAmount || "0", NATIVE_DECIMALS));
+}
+
+/** "$1,234.56" for values ≥ 1, "$0.00046927" for sub-dollar prices; null when
+ *  there is no positive value to show (never renders "$0"). */
+function usdLabel(value: BigNumber | null | undefined): string | null {
+  if (!value || value.lte(0)) return null;
+  if (value.gte(1)) return `$${prettyAmount(value.toFixed(2))}`;
+  return `$${formatUsdAmount(value)}`;
 }
 
 interface HubPage {
@@ -120,50 +131,59 @@ interface WalletBalance {
 }
 
 export function BalancePanel({ address, label, proxyTarget, onNavigate, onShowAbout }: Props) {
-  const [balances, setBalances] = useState<WalletBalance[]>([]);
-  const [bzePrice, setBzePrice] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const { assets, isLoading, reload, price, logo, usdValue } = useAssets(address, proxyTarget);
+
+  // Cross-wallet BZE totals still come from GetAllBalances (useAssets only covers
+  // the active address). Prices/formatting go through the ported utils.
+  const [walletBalances, setWalletBalances] = useState<WalletBalance[]>([]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetchBalances = async () => {
+  const fetchWalletBalances = async () => {
     if (!address) return;
-    setLoading(true);
     try {
       const result = await GetAllBalances();
-      setBalances(result as WalletBalance[] || []);
+      setWalletBalances((result as WalletBalance[]) || []);
     } catch (e) {
-      console.error("balance fetch:", e);
+      console.error("wallet balances fetch:", e);
     }
-    try {
-      const price = await GetBzePrice();
-      setBzePrice(price);
-    } catch (e) {
-      console.error("price fetch:", e);
-    }
-    setLoading(false);
+  };
+
+  const refresh = () => {
+    reload();
+    fetchWalletBalances();
   };
 
   useEffect(() => {
-    fetchBalances();
+    fetchWalletBalances();
     if (intervalRef.current) clearInterval(intervalRef.current);
     const interval = proxyTarget === "local" ? 10_000 : 30_000;
-    intervalRef.current = setInterval(fetchBalances, interval);
+    intervalRef.current = setInterval(fetchWalletBalances, interval);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [address, proxyTarget]);
 
-  const activeBalance = balances.find((b) => b.address === address);
-  const otherBalances = balances.filter((b) => b.address !== address);
+  const otherBalances = walletBalances.filter((b) => b.address !== address);
   const otherTotal = otherBalances.reduce((sum, b) => sum + BigInt(b.amount || "0"), BigInt(0));
 
-  const toUsd = (ubzeAmount: string): string => {
-    if (bzePrice <= 0) return "";
-    const bze = Number(BigInt(ubzeAmount || "0")) / 1_000_000;
-    const usd = bze * bzePrice;
-    const decimals = usd < 1 ? 6 : 2;
-    return usd.toLocaleString(undefined, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: decimals });
-  };
+  const bzePrice = price(NATIVE_DENOM);
+  const nativeAsset = assets.find((a) => a.denom === NATIVE_DENOM);
+  const nativeAmount = nativeAsset?.amount || "0";
+  const nativeUsd = usdLabel(usdValue(NATIVE_DENOM, nativeAmount));
+  const otherUsd =
+    bzePrice && otherTotal > BigInt(0)
+      ? usdLabel(bzePrice.multipliedBy(uAmountToBigNumberAmount(otherTotal.toString(), NATIVE_DECIMALS)))
+      : null;
+
+  // The active wallet's holdings (non-zero balances), most valuable first. LP
+  // tokens keep their resolved names; anything priced sorts above the unpriced.
+  const holdings = assets
+    .filter((a) => a.denom !== NATIVE_DENOM && toBigNumber(a.amount || "0").gt(0))
+    .sort((a, b) => {
+      const av = usdValue(a.denom, a.amount) ?? toBigNumber(0);
+      const bv = usdValue(b.denom, b.amount) ?? toBigNumber(0);
+      return bv.comparedTo(av) ?? 0;
+    });
 
   return (
     <VStack align="stretch" gap="8">
@@ -177,8 +197,8 @@ export function BalancePanel({ address, label, proxyTarget, onNavigate, onShowAb
             aria-label="Refresh balance"
             size="2xs"
             variant="ghost"
-            onClick={fetchBalances}
-            disabled={loading}
+            onClick={refresh}
+            disabled={isLoading}
           >
             {LuRefreshCw({}) as React.ReactNode}
           </IconButton>
@@ -186,24 +206,70 @@ export function BalancePanel({ address, label, proxyTarget, onNavigate, onShowAb
 
         <HStack align="baseline" gap="2">
           <Heading size="3xl" fontWeight="bold">
-            {formatBze(activeBalance?.amount || "0")}
+            {formatBze(nativeAmount)}
           </Heading>
           <Text fontSize="lg" color="fg.muted">BZE</Text>
         </HStack>
 
-        {bzePrice > 0 && (
+        {nativeUsd && (
           <Text fontSize="sm" color="fg.muted" mt="0.5">
-            {toUsd(activeBalance?.amount || "0")}
+            {nativeUsd}
           </Text>
         )}
 
         {otherBalances.length > 0 && otherTotal > BigInt(0) && (
           <Text fontSize="xs" color="fg.muted" mt="1">
             In other wallets: {formatBze(otherTotal.toString())} BZE
-            {bzePrice > 0 && ` (${toUsd(otherTotal.toString())})`}
+            {otherUsd && ` (${otherUsd})`}
           </Text>
         )}
       </Box>
+
+      {/* Assets held by the active wallet */}
+      {holdings.length > 0 && (
+        <Box>
+          <Text fontSize="sm" fontWeight="semibold" color="fg.muted" mb="3">
+            Your Assets
+          </Text>
+          <VStack align="stretch" gap="1">
+            {holdings.map((a) => {
+              const value = usdLabel(usdValue(a.denom, a.amount));
+              return (
+                <HStack
+                  key={a.denom}
+                  justify="space-between"
+                  px="3"
+                  py="2"
+                  borderRadius="lg"
+                  _hover={{ bg: "bg.subtle" }}
+                >
+                  <HStack gap="3" minW="0">
+                    <TokenLogo src={logo(a.denom)} symbol={a.symbol} size="7" />
+                    <Box minW="0">
+                      <Text fontSize="sm" fontWeight="semibold" truncate>
+                        {a.symbol}
+                      </Text>
+                      <Text fontSize="xs" color="fg.muted" truncate>
+                        {a.name}
+                      </Text>
+                    </Box>
+                  </HStack>
+                  <Box textAlign="right" flexShrink={0}>
+                    <Text fontSize="sm" fontWeight="medium">
+                      {prettyAmount(uAmountToBigNumberAmount(a.amount, a.decimals))}
+                    </Text>
+                    {value && (
+                      <Text fontSize="xs" color="fg.muted">
+                        {value}
+                      </Text>
+                    )}
+                  </Box>
+                </HStack>
+              );
+            })}
+          </VStack>
+        </Box>
+      )}
 
       {/* Hub Pages */}
       <Box>
