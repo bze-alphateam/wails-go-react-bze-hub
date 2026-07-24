@@ -1,0 +1,142 @@
+{
+  "version": "2026-07-24",
+  "chains": [
+    {
+      "chainName": "beezee",
+      "chainId": "beezee-1",
+      "prettyName": "BeeZee",
+      "assets": [
+        {
+          "base": "ubze",
+          "symbol": "BZE",
+          "name": "BeeZee",
+          "display": "bze",
+          "denomUnits": [
+            { "denom": "ubze", "exponent": 0 },
+            { "denom": "bze", "exponent": 6 }
+          ],
+          "logoRef": "beezee/ubze"
+        },
+        {
+          "base": "factory/bze13gzq40che93tgfm9kzmkpjamah5nj0j73pyhqk/uvdl",
+          "symbol": "VDL",
+          "name": "Vidulum",
+          "display": "vdl",
+          "denomUnits": [
+            { "denom": "factory/bze13gzq40che93tgfm9kzmkpjamah5nj0j73pyhqk/uvdl", "exponent": 0 },
+            { "denom": "vdl", "exponent": 6 }
+          ],
+          "logoRef": "beezee/uvdl"
+        }
+      ]
+    },
+    {
+      "chainName": "osmosis",
+      "chainId": "osmosis-1",
+      "prettyName": "Osmosis",
+      "assets": [
+        {
+          "base": "uosmo",
+          "symbol": "OSMO",
+          "name": "Osmosis",
+          "display": "osmo",
+          "denomUnits": [
+            { "denom": "uosmo", "exponent": 0 },
+            { "denom": "osmo", "exponent": 6 }
+          ],
+          "logoRef": "osmosis/uosmo"
+        }
+      ]
+    },
+    {
+      "chainName": "noble",
+      "chainId": "noble-1",
+      "prettyName": "Noble",
+      "assets": [
+        {
+          "base": "uusdc",
+          "symbol": "USDC",
+          "name": "USD Coin",
+          "display": "usdc",
+          "denomUnits": [
+            { "denom": "uusdc", "exponent": 0 },
+            { "denom": "usdc", "exponent": 6 }
+          ],
+          "logoRef": "noble/uusdc"
+        }
+      ]
+    },
+    {
+      "chainName": "archway",
+      "chainId": "archway-1",
+      "prettyName": "Archway",
+      "assets": [
+        {
+          "base": "aarch",
+          "symbol": "ARCH",
+          "name": "Archway",
+          "display": "arch",
+          "denomUnits": [
+            { "denom": "aarch", "exponent": 0 },
+            { "denom": "arch", "exponent": 18 }
+          ],
+          "logoRef": "archway/aarch"
+        }
+      ]
+    },
+    {
+      "chainName": "jackal",
+      "chainId": "jackal-1",
+      "prettyName": "Jackal",
+      "assets": [
+        {
+          "base": "ujkl",
+          "symbol": "JKL",
+          "name": "Jackal",
+          "display": "jkl",
+          "denomUnits": [
+            { "denom": "ujkl", "exponent": 0 },
+            { "denom": "jkl", "exponent": 6 }
+          ],
+          "logoRef": "jackal/ujkl"
+        }
+      ]
+    },
+    {
+      "chainName": "omniflixhub",
+      "chainId": "omniflixhub-1",
+      "prettyName": "OmniFlix",
+      "assets": [
+        {
+          "base": "uflix",
+          "symbol": "FLIX",
+          "name": "OmniFlix",
+          "display": "flix",
+          "denomUnits": [
+            { "denom": "uflix", "exponent": 0 },
+            { "denom": "flix", "exponent": 6 }
+          ],
+          "logoRef": "omniflixhub/uflix"
+        }
+      ]
+    },
+    {
+      "chainName": "atomone",
+      "chainId": "atomone-1",
+      "prettyName": "AtomOne",
+      "assets": [
+        {
+          "base": "uatone",
+          "symbol": "ATONE",
+          "name": "AtomOne",
+          "display": "atone",
+          "denomUnits": [
+            { "denom": "uatone", "exponent": 0 },
+            { "denom": "atone", "exponent": 6 }
+          ],
+          "logoRef": "atomone/uatone"
+        }
+      ]
+    }
+  ]
+}
