@@ -108,7 +108,6 @@ func (r *resolver) resolveIBC(denom string) (Asset, bool) {
 		a.Symbol = strings.ToUpper(ra.Symbol)
 		a.Name = ra.Name
 		a.Decimals = ra.Exponent()
-		a.LogoRef = ra.LogoRef
 		a.Verified = true
 		if info.Counterparty.ChainName == "" {
 			info.Counterparty.ChainName = chain.ChainName
@@ -177,7 +176,6 @@ func applyBZERegistry(a *Asset, ra RegistryAsset) {
 	a.Name = ra.Name
 	a.Symbol = strings.ToUpper(ra.Display)
 	a.Decimals = ra.Exponent()
-	a.LogoRef = ra.LogoRef
 }
 
 // applyMetadata merges on-chain bank denom_metadata into an asset (web

@@ -38,18 +38,48 @@ type Chain struct {
 
 // RegistryAsset is a single asset entry from a chain's registry asset list.
 type RegistryAsset struct {
-	Base       string      `json:"base"`
-	Symbol     string      `json:"symbol"`
-	Name       string      `json:"name"`
-	Display    string      `json:"display"`
-	DenomUnits []DenomUnit `json:"denomUnits"`
-	LogoRef    string      `json:"logoRef"`
+	Base        string      `json:"base"`
+	Symbol      string      `json:"symbol"`
+	Name        string      `json:"name"`
+	Display     string      `json:"display"`
+	DenomUnits  []DenomUnit `json:"denomUnits"`
+	CoingeckoID string      `json:"coingeckoId,omitempty"` // aggregator price key (e.g. "bzedge")
+	LogoURIs    *LogoURIs   `json:"logoURIs,omitempty"`
+	Images      []LogoURIs  `json:"images,omitempty"`
 }
 
 // DenomUnit maps a denom to its exponent (e.g. bze → 6).
 type DenomUnit struct {
 	Denom    string `json:"denom"`
 	Exponent int    `json:"exponent"`
+}
+
+// LogoURIs holds the logo source URLs for an asset (mirrors chain-registry's
+// logo_URIs / images entries).
+type LogoURIs struct {
+	SVG string `json:"svg,omitempty"`
+	PNG string `json:"png,omitempty"`
+}
+
+// LogoCandidates returns the asset's logo source URLs in the web engine's
+// priority order (logoURIs.svg → logoURIs.png → images[i].svg → images[i].png),
+// skipping empties. The logo cache downloads the first that succeeds.
+func (a RegistryAsset) LogoCandidates() []string {
+	var out []string
+	add := func(u string) {
+		if u != "" {
+			out = append(out, u)
+		}
+	}
+	if a.LogoURIs != nil {
+		add(a.LogoURIs.SVG)
+		add(a.LogoURIs.PNG)
+	}
+	for _, img := range a.Images {
+		add(img.SVG)
+		add(img.PNG)
+	}
+	return out
 }
 
 // Exponent returns the exponent of the asset's display unit, or 0 if unknown.
