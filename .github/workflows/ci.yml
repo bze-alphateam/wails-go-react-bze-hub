@@ -1,0 +1,62 @@
+name: CI
+
+# PR gate: run the Go + frontend test suites and the frontend build on every
+# pull request into an integration branch. The multi-platform release build
+# (see docs/08-build-distribution.md) is a separate, tag-triggered pipeline.
+on:
+  pull_request:
+    branches: [main, main-v2, develop]
+  workflow_dispatch:
+
+# Cancel superseded runs for the same PR/branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go (vet + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Note: the Wails webkit/cgo bindings are gated behind the `webkit2_41`
+      # build tag used only by `wails build`, so `go vet` / `go test` compile
+      # headless without the GTK/webkit dev packages. If a future change pulls
+      # those in, add: sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -race
+
+  frontend:
+    name: Frontend (test + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build
