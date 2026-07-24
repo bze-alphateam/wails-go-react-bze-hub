@@ -142,17 +142,9 @@ func NewEndpointProxy(label string, localAddr, publicAddr string, appState *stat
 }
 
 // ServeHTTP handles each request, routing to local or public.
+// No CORS headers: the proxy serves only the Go backend (the embedded web
+// dApps are gone), and their absence keeps browser pages from reading responses.
 func (p *EndpointProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// CORS headers — required for iframe dApps calling localhost
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
-
-	if r.Method == "OPTIONS" {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
 	useLocal := p.appState.GetNodeStatus() == state.NodeSynced && p.cb.isLocalSafe()
 
 	// Log broadcast requests
