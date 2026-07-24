@@ -63,7 +63,12 @@ jobs:
       # The Wails JS bindings (frontend/wailsjs) are git-ignored and generated
       # from the Go app; 9 frontend source files import them, so the build/tests
       # can't resolve without them. `wails generate module` produces them
-      # headlessly (no GTK/webkit needed).
+      # headlessly (no GTK/webkit needed) — but it compiles the Go app, whose
+      # //go:embed all:frontend/dist needs the (git-ignored) dist dir to exist,
+      # so stub it first. The real bundle is produced by `npm run build` below.
+      - name: Stub embedded frontend bundle
+        run: mkdir -p frontend/dist && touch frontend/dist/index.html
+
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
 
