@@ -37,6 +37,11 @@ type AppSettings struct {
 
 	// Developer mode — Node Doctor
 	DoctorRetryDelaysSec []int `json:"doctorRetryDelaysSec"` // Default: [5, 30, 120, 300]
+
+	// Per-section Simple/Advanced view preference, keyed "view.<section>"
+	// (e.g. "view.earn" → "simple"|"advanced"). Empty on fresh install, so
+	// every section defaults to "simple". Persisted per device.
+	SectionViews map[string]string `json:"sectionViews"`
 }
 
 // DefaultSettings returns settings with all defaults applied.
@@ -61,6 +66,7 @@ func DefaultSettings() AppSettings {
 		SlowLoopIntervalSec:       3600,
 		CrossCheckBlockDelta:      2,
 		DoctorRetryDelaysSec:      []int{5, 30, 120, 300},
+		SectionViews:              map[string]string{},
 	}
 }
 

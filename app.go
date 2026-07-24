@@ -749,9 +749,10 @@ func (a *App) Unlock(password string) error {
 
 // --- Settings ---
 
-// GetSettings returns current app settings.
+// GetSettings returns current app settings. Per-section view preferences are
+// flattened into the map under their "view.<section>" keys.
 func (a *App) GetSettings() map[string]interface{} {
-	return map[string]interface{}{
+	out := map[string]interface{}{
 		"trusted":                   a.settings.Trusted,
 		"autoStartNode":             a.settings.AutoStartNode,
 		"theme":                     a.settings.Theme,
@@ -768,10 +769,27 @@ func (a *App) GetSettings() map[string]interface{} {
 		"slowLoopIntervalSec":       a.settings.SlowLoopIntervalSec,
 		"crossCheckBlockDelta":      a.settings.CrossCheckBlockDelta,
 	}
+	for k, v := range a.settings.SectionViews {
+		out[k] = v
+	}
+	return out
 }
 
-// UpdateSetting updates a single setting and saves.
+// UpdateSetting updates a single setting and saves. Keys prefixed "view."
+// address the per-section Simple/Advanced view preference map.
 func (a *App) UpdateSetting(key string, value interface{}) error {
+	if strings.HasPrefix(key, "view.") {
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("setting %s expects a string value", key)
+		}
+		if a.settings.SectionViews == nil {
+			a.settings.SectionViews = map[string]string{}
+		}
+		a.settings.SectionViews[key] = v
+		return config.SaveSettings(a.settings)
+	}
+
 	switch key {
 	case "logLevel":
 		v := value.(string)

@@ -1,5 +1,7 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Box, Text, Center, Spinner, VStack, HStack, Button } from "@chakra-ui/react";
+import { SectionTabs } from "../SectionTabs";
+import { useSectionView } from "../../hooks/useSectionView";
 import { useStakingData } from "../../hooks/useStakingData";
 import { useStakingTx } from "../../hooks/useStakingTx";
 import {
@@ -18,27 +20,14 @@ interface StakingPageProps {
   proxyTarget: string;
 }
 
-type StakingView = "compact" | "advanced";
-
-const VIEW_STORAGE_KEY = "bze-staking-view";
-
-function getInitialView(): StakingView {
-  if (typeof localStorage !== "undefined") {
-    const stored = localStorage.getItem(VIEW_STORAGE_KEY);
-    if (stored === "compact" || stored === "advanced") return stored;
-  }
-  return "compact";
-}
-
 export function StakingPage({ address, proxyTarget }: StakingPageProps) {
   const { data, isLoading, error, reload } = useStakingData(address, proxyTarget);
   const { claimAll, isSubmitting } = useStakingTx(address);
 
-  const [view, setViewState] = useState<StakingView>(getInitialView);
-  const setView = (v: StakingView) => {
-    if (typeof localStorage !== "undefined") localStorage.setItem(VIEW_STORAGE_KEY, v);
-    setViewState(v);
-  };
+  // Earn's Simple/Advanced views, persisted per device via the app-wide
+  // per-section pattern. "simple" = the compact overview; "advanced" = the
+  // full validator table + rewards.
+  const { view, setView } = useSectionView("earn");
 
   // Derived values
   const apr = useMemo(() => {
@@ -154,10 +143,10 @@ export function StakingPage({ address, proxyTarget }: StakingPageProps) {
           <Text fontSize="lg" fontWeight="bold">
             Staking
           </Text>
-          <ViewToggle value={view} onChange={setView} />
+          <SectionTabs section="earn" value={view} onChange={setView} />
         </HStack>
 
-        {view === "compact" ? (
+        {view === "simple" ? (
           <StakingCompact
             data={data || {}}
             apr={apr}
@@ -186,7 +175,7 @@ export function StakingPage({ address, proxyTarget }: StakingPageProps) {
               unbondingDays={unbondingDays}
               address={address}
               onReload={reload}
-              onSwitchToSimple={() => setView("compact")}
+              onSwitchToSimple={() => setView("simple")}
             />
 
             <RewardsStakingSection
@@ -201,31 +190,5 @@ export function StakingPage({ address, proxyTarget }: StakingPageProps) {
         )}
       </VStack>
     </Box>
-  );
-}
-
-// Segmented Compact | Advanced control.
-function ViewToggle({
-  value,
-  onChange,
-}: {
-  value: StakingView;
-  onChange: (v: StakingView) => void;
-}) {
-  return (
-    <HStack gap="0" bg="bg.subtle" borderRadius="md" p="1">
-      {(["compact", "advanced"] as const).map((v) => (
-        <Button
-          key={v}
-          size="xs"
-          variant={value === v ? "solid" : "ghost"}
-          colorPalette={value === v ? "teal" : "gray"}
-          onClick={() => onChange(v)}
-          textTransform="capitalize"
-        >
-          {v}
-        </Button>
-      ))}
-    </HStack>
   );
 }
