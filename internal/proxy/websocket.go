@@ -10,11 +10,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins (localhost proxy)
-	},
-}
+// The default CheckOrigin is intentional: it accepts clients that send no
+// Origin header (our Go backend) and rejects cross-origin browser requests —
+// the embedded web dApps that once needed a permissive policy are gone.
+var upgrader = websocket.Upgrader{}
 
 // WebSocketProxy handles WebSocket connections for the RPC proxy.
 // It determines the target (local or public) at connection time and creates
