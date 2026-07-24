@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bze-alphateam/bze-hub/internal/assets"
 	"github.com/bze-alphateam/bze-hub/internal/chain"
 	"github.com/bze-alphateam/bze-hub/internal/config"
 	"github.com/bze-alphateam/bze-hub/internal/logging"
@@ -74,6 +75,9 @@ type App struct {
 
 	// Chain gRPC client for native queries (staking, rewards, etc.)
 	chainClient *chain.Client
+
+	// Asset engine — resolves denoms (native/factory/ibc/lp) to token identity
+	assetEngine *assets.Engine
 }
 
 // NewApp creates a new App application struct.
@@ -358,6 +362,10 @@ func (a *App) setupNode(ctx context.Context) {
 	a.chainClient = chain.NewClient(localGRPC, publicGRPC, restProxy, a.appState)
 	logging.Info("app", "chain gRPC client initialized (local: %s, public: %s, rest: %s)", localGRPC, publicGRPC, restProxy)
 
+	// 8c. Initialize the asset engine (embedded snapshot — instant, no network)
+	// and kick off a non-blocking background registry refresh.
+	a.initAssetEngine()
+
 	// 9. Check for orphan node from previous session
 	orphanPID := node.CleanupOrphanNode()
 	a.nodeProcess = node.NewNodeProcess(ports)
@@ -536,6 +544,8 @@ func (a *App) startProxiesUsingExisting() {
 	publicGRPC := "grpc.getbze.com:443"
 	a.chainClient = chain.NewClient(localGRPC, publicGRPC, restProxy, a.appState)
 	logging.Info("app", "chain gRPC client initialized (local: %s, public: %s, rest: %s)", localGRPC, publicGRPC, restProxy)
+
+	a.initAssetEngine()
 }
 
 // --- First-run detection ---

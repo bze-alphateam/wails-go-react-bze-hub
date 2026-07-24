@@ -10,7 +10,7 @@ import (
 )
 
 //go:embed all:frontend/dist
-var assets embed.FS
+var frontendAssets embed.FS
 
 func main() {
 	app := NewApp()
@@ -28,7 +28,7 @@ func main() {
 			WindowIsTranslucent:  false,
 		},
 		AssetServer: &assetserver.Options{
-			Assets: assets,
+			Assets: frontendAssets,
 		},
 		OnStartup:  app.startup,
 		OnShutdown: app.shutdown,
