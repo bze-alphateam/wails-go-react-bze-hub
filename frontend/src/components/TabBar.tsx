@@ -1,49 +1,48 @@
 import { Box, HStack, Button, Text, Spacer, IconButton } from "@chakra-ui/react";
-import { LuHouse, LuLock, LuRefreshCw } from "react-icons/lu";
+import { LuRefreshCw, LuSettings } from "react-icons/lu";
 import { WalletMenu } from "./WalletMenu";
-
-const tabs = [
-  { id: "dashboard", label: "Dashboard" },
-  { id: "staking", label: "Staking" },
-] as const;
-
-const tabIcons: Record<string, React.ReactNode> = {
-  dashboard: LuHouse({}) as React.ReactNode,
-  staking: LuLock({}) as React.ReactNode,
-};
+import { SECTIONS } from "../sections";
+import { sectionAccent } from "../theme";
+import type { SectionId } from "../theme";
 
 interface TabBarProps {
-  activeTab: string;
-  onTabChange: (tabId: string) => void;
+  activeTab: SectionId;
+  onTabChange: (tabId: SectionId) => void;
   onRefresh: () => void;
+  onOpenSettings: () => void;
   accountLabel?: string;
   accountAddress?: string;
   onAccountChanged?: () => void;
 }
 
-export function TabBar({ activeTab, onTabChange, onRefresh, accountLabel, accountAddress, onAccountChanged }: TabBarProps) {
+export function TabBar({
+  activeTab, onTabChange, onRefresh, onOpenSettings,
+  accountLabel, accountAddress, onAccountChanged,
+}: TabBarProps) {
+  const activeAccent = sectionAccent[activeTab];
+
   return (
-    <Box
-      borderBottomWidth="1px"
-      borderColor="border"
-      bg="bg.panel"
-      px="4"
-      py="2"
-      flexShrink={0}
-    >
-      <HStack gap="1">
-        {tabs.map((tab) => (
-          <Button
-            key={tab.id}
-            size="sm"
-            variant={activeTab === tab.id ? "solid" : "ghost"}
-            colorPalette={activeTab === tab.id ? "teal" : "gray"}
-            onClick={() => onTabChange(tab.id)}
-          >
-            {tabIcons[tab.id]}
-            <Text ml="1">{tab.label}</Text>
-          </Button>
-        ))}
+    <Box bg="bg.panel" flexShrink={0} colorPalette={activeAccent}>
+      <HStack gap="1" px="4" py="2">
+        {SECTIONS.map((section) => {
+          const isActive = activeTab === section.id;
+          return (
+            <Button
+              key={section.id}
+              size="sm"
+              variant={isActive ? "solid" : "ghost"}
+              colorPalette={isActive ? sectionAccent[section.id] : "gray"}
+              onClick={() => onTabChange(section.id)}
+              aria-label={section.label}
+              title={section.label}
+            >
+              {section.icon({}) as React.ReactNode}
+              {/* Labels collapse to icons below `lg` so the six sections fit
+                  alongside the wallet menu at the 800px minimum window width. */}
+              <Text ml="1" display={{ base: "none", lg: "inline" }}>{section.label}</Text>
+            </Button>
+          );
+        })}
 
         <IconButton
           aria-label="Refresh"
@@ -63,7 +62,19 @@ export function TabBar({ activeTab, onTabChange, onRefresh, accountLabel, accoun
             onAccountChanged={onAccountChanged}
           />
         )}
+
+        <IconButton
+          aria-label="Settings"
+          size="sm"
+          variant="ghost"
+          onClick={onOpenSettings}
+        >
+          {LuSettings({}) as React.ReactNode}
+        </IconButton>
       </HStack>
+
+      {/* Per-section accent strip beneath the nav (the "section header" accent). */}
+      <Box h="2px" bg="colorPalette.solid" />
     </Box>
   );
 }

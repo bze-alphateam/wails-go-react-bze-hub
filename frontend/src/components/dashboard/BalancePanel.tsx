@@ -41,9 +41,9 @@ interface ExternalLink {
 }
 
 const hubPages: HubPage[] = [
-  { label: "DEX", tabId: "dex", icon: LuChartColumn, description: "Trade tokens" },
+  { label: "Trade", tabId: "trade", icon: LuChartColumn, description: "Trade tokens" },
   { label: "Burner", tabId: "burner", icon: LuFlame, description: "Burn tokens & raffles" },
-  { label: "Staking", tabId: "staking", icon: LuLock, description: "Stake & delegate" },
+  { label: "Earn", tabId: "earn", icon: LuLock, description: "Stake & delegate" },
 ];
 
 const officialLinks: ExternalLink[] = [

@@ -1,10 +1,9 @@
 import { useState, useEffect } from "react";
 import { Box, HStack, Text, Circle, IconButton, Button } from "@chakra-ui/react";
 import { useColorMode } from "../hooks/useColorMode";
-import { LuSun, LuMoon, LuRotateCcw, LuSettings } from "react-icons/lu";
+import { LuSun, LuMoon, LuRotateCcw } from "react-icons/lu";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
 import { GetNodeSnapshot, ForceReInitNode } from "../../wailsjs/go/main/App";
-import { SettingsModal } from "./SettingsModal";
 
 interface NodeSnapshot {
   status: string;
@@ -36,7 +35,6 @@ const statusLabels: Record<string, string> = {
 
 export function StatusBar() {
   const { colorMode, toggleColorMode } = useColorMode();
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [node, setNode] = useState<NodeSnapshot>({
     status: "not_started",
     height: 0,
@@ -118,15 +116,6 @@ export function StatusBar() {
         <Box flex="1" />
 
         <IconButton
-          aria-label="Settings"
-          size="2xs"
-          variant="ghost"
-          onClick={() => setSettingsOpen(true)}
-        >
-          {LuSettings({}) as React.ReactNode}
-        </IconButton>
-
-        <IconButton
           aria-label="Toggle color mode"
           size="2xs"
           variant="ghost"
@@ -138,8 +127,6 @@ export function StatusBar() {
           }
         </IconButton>
       </HStack>
-
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </Box>
   );
 }

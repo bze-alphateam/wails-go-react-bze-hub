@@ -2,20 +2,25 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Flex, Spinner, Center, Text, Box } from "@chakra-ui/react";
 import { TabBar } from "./components/TabBar";
 import { StatusBar } from "./components/StatusBar";
+import { SettingsModal } from "./components/SettingsModal";
+import { PlaceholderSection } from "./components/PlaceholderSection";
 import { Dashboard } from "./components/dashboard/Dashboard";
 import { Wizard } from "./components/wizard/Wizard";
 import { IsFirstRun, GetAccounts, GetNodeSnapshot } from "../wailsjs/go/main/App";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 import { StakingPage } from "./components/staking/StakingPage";
+import { PLACEHOLDER_SECTIONS } from "./sections";
+import type { SectionId } from "./theme";
 
 type AppView = "loading" | "wizard" | "main" | "shutdown";
 
 function App() {
   const [view, setView] = useState<AppView>("loading");
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const [activeTab, setActiveTab] = useState<SectionId>("dashboard");
   const [activeAddress, setActiveAddress] = useState("");
   const [activeLabel, setActiveLabel] = useState("");
   const [proxyTarget, setProxyTarget] = useState("public");
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     checkFirstRun();
@@ -57,7 +62,7 @@ function App() {
   }, []);
 
   function handleTabChange(tabId: string) {
-    setActiveTab(tabId);
+    setActiveTab(tabId as SectionId);
   }
 
   async function checkFirstRun() {
@@ -121,20 +126,15 @@ function App() {
         activeTab={activeTab}
         onTabChange={handleTabChange}
         onRefresh={handleRefresh}
+        onOpenSettings={() => setSettingsOpen(true)}
         accountLabel={activeLabel}
         accountAddress={activeAddress}
         onAccountChanged={loadAccounts}
       />
 
       <Box flex="1" bg="bg" overflow="hidden" position="relative">
-        {/* Dashboard */}
-        <Box
-          position="absolute"
-          top="0" left="0"
-          width="100%" height="100%"
-          display={activeTab === "dashboard" ? "block" : "none"}
-          overflow="hidden"
-        >
+        {/* Dashboard — kept mounted to preserve state and article polling. */}
+        <SectionPane active={activeTab === "dashboard"}>
           <Dashboard
             address={activeAddress}
             label={activeLabel}
@@ -142,22 +142,47 @@ function App() {
             onNavigate={handleTabChange}
             active={activeTab === "dashboard"}
           />
-        </Box>
+        </SectionPane>
 
-        {/* Native Staking Page */}
-        <Box
-          position="absolute"
-          top="0" left="0"
-          width="100%" height="100%"
-          display={activeTab === "staking" ? "block" : "none"}
-          overflow="hidden"
-        >
+        {/* Earn — native staking, kept mounted to preserve its polling. */}
+        <SectionPane active={activeTab === "earn"}>
           <StakingPage address={activeAddress} proxyTarget={proxyTarget} />
-        </Box>
+        </SectionPane>
+
+        {/* Placeholder sections — rendered only when active. */}
+        {PLACEHOLDER_SECTIONS.map((section) =>
+          activeTab === section.id ? (
+            <SectionPane key={section.id} active>
+              <PlaceholderSection
+                id={section.id}
+                label={section.label}
+                milestone={section.milestone!}
+                icon={section.icon}
+              />
+            </SectionPane>
+          ) : null
+        )}
       </Box>
 
       <StatusBar />
+
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </Flex>
+  );
+}
+
+/** Full-bleed pane for a single section; toggles visibility without unmounting. */
+function SectionPane({ active, children }: { active: boolean; children: React.ReactNode }) {
+  return (
+    <Box
+      position="absolute"
+      top="0" left="0"
+      width="100%" height="100%"
+      display={active ? "block" : "none"}
+      overflow="hidden"
+    >
+      {children}
+    </Box>
   );
 }
 
