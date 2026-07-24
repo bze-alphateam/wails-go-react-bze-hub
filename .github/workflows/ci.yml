@@ -1,0 +1,88 @@
+name: CI
+
+# PR gate: run the Go + frontend test suites and the frontend build on every
+# pull request into an integration branch. The multi-platform release build
+# (see docs/08-build-distribution.md) is a separate, tag-triggered pipeline.
+on:
+  pull_request:
+    branches: [main, main-v2, develop]
+  workflow_dispatch:
+
+# Cancel superseded runs for the same PR/branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go (vet + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # main.go embeds `frontend/dist` (built frontend bundle), which is
+      # git-ignored and absent on a clean checkout. vet/test don't need the real
+      # bundle — a placeholder satisfies the //go:embed directive so the package
+      # compiles. The Wails webkit/cgo bindings are gated behind the
+      # `webkit2_41` build tag (used only by `wails build`), so no GTK/webkit
+      # dev packages are needed here.
+      - name: Stub embedded frontend bundle
+        run: mkdir -p frontend/dist && touch frontend/dist/index.html
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -race
+
+  frontend:
+    name: Frontend (test + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # The Wails JS bindings (frontend/wailsjs) are git-ignored and generated
+      # from the Go app; 9 frontend source files import them, so the build/tests
+      # can't resolve without them. `wails generate module` produces them
+      # headlessly (no GTK/webkit needed) — but it compiles the Go app, whose
+      # //go:embed all:frontend/dist needs the (git-ignored) dist dir to exist,
+      # so stub it first. The real bundle is produced by `npm run build` below.
+      - name: Stub embedded frontend bundle
+        run: mkdir -p frontend/dist && touch frontend/dist/index.html
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+
+      - name: Generate Wails bindings
+        run: wails generate module
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Test
+        working-directory: frontend
+        run: npm run test
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
