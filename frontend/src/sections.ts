@@ -22,7 +22,7 @@ export interface SectionDef {
  */
 export const SECTIONS: SectionDef[] = [
   { id: "dashboard", label: "Dashboard", icon: LuHouse },
-  { id: "portfolio", label: "Portfolio", icon: LuWallet, milestone: "M1" },
+  { id: "portfolio", label: "Portfolio", icon: LuWallet },
   { id: "trade", label: "Trade", icon: LuArrowLeftRight, milestone: "M2–M3" },
   { id: "earn", label: "Earn", icon: LuSprout },
   { id: "burner", label: "Burner", icon: LuFlame, milestone: "M5" },

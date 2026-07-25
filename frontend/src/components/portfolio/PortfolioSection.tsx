@@ -1,0 +1,137 @@
+import { useMemo, useState } from "react";
+import {
+  Box, VStack, HStack, Text, Heading, Input, Button, IconButton,
+  Center, Spinner,
+} from "@chakra-ui/react";
+import { LuRefreshCw } from "react-icons/lu";
+import { useAssets } from "../../hooks/useAssets";
+import { useChainEvents } from "../../hooks/useChainEvents";
+import { PortfolioRow } from "./PortfolioRow";
+import { visibleAssets, totalUsdValue, usdLabel } from "./portfolioHelpers";
+
+interface PortfolioSectionProps {
+  address: string;
+  proxyTarget: string;
+}
+
+/**
+ * The Portfolio section: the active wallet's asset holdings with logos, type and
+ * verified badges, amounts and USD values, a total-value header, search and a
+ * holdings-only / "Show all" toggle. Data comes from the M0 asset engine via
+ * `useAssets`; a tx touching the active address refreshes the list within a
+ * block (coalesced) via `useChainEvents`.
+ */
+export function PortfolioSection({ address, proxyTarget }: PortfolioSectionProps) {
+  const { assets, isLoading, error, reload, logo, usdValue } = useAssets(address, proxyTarget);
+  const [search, setSearch] = useState("");
+  const [showAll, setShowAll] = useState(false);
+
+  // Live refresh: a tx touching the active address refreshes within a block,
+  // instead of waiting for the poll interval.
+  useChainEvents(address, { onMatchingTx: () => reload() });
+
+  const total = useMemo(() => totalUsdValue(assets, usdValue), [assets, usdValue]);
+  const rows = useMemo(
+    () => visibleAssets(assets, { search, showAll, usdValue }),
+    [assets, search, showAll, usdValue]
+  );
+
+  if (!address) {
+    return (
+      <Center h="100%">
+        <Text color="fg.muted">Connect a wallet to view your portfolio</Text>
+      </Center>
+    );
+  }
+
+  if (isLoading && assets.length === 0) {
+    return (
+      <Center h="100%" flexDirection="column" gap="3">
+        <Spinner size="lg" color="teal.500" />
+        <Text color="fg.muted">Loading portfolio...</Text>
+      </Center>
+    );
+  }
+
+  if (error && assets.length === 0) {
+    return (
+      <Center h="100%" flexDirection="column" gap="3">
+        <Text color="red.500">Failed to load portfolio</Text>
+        <Text fontSize="sm" color="fg.muted">{error}</Text>
+        <Box mt="2">
+          <Button size="sm" onClick={reload}>Retry</Button>
+        </Box>
+      </Center>
+    );
+  }
+
+  const emptyMessage = search
+    ? "No assets match your search"
+    : showAll
+      ? "No known assets"
+      : "No holdings yet — receive some tokens to get started";
+
+  return (
+    <Box h="100%" overflowY="auto" p="4">
+      <VStack gap="4" align="stretch" maxW="1000px" mx="auto">
+        {/* Total value header */}
+        <HStack justify="space-between" align="flex-start">
+          <Box>
+            <Text fontSize="sm" fontWeight="semibold" color="fg.muted">
+              Total Portfolio Value
+            </Text>
+            <Heading size="3xl" fontWeight="bold">
+              {usdLabel(total) ?? "$0.00"}
+            </Heading>
+          </Box>
+          <IconButton
+            aria-label="Refresh portfolio"
+            size="sm"
+            variant="ghost"
+            onClick={reload}
+            disabled={isLoading}
+          >
+            {LuRefreshCw({}) as React.ReactNode}
+          </IconButton>
+        </HStack>
+
+        {/* Search + holdings/all toggle */}
+        <HStack gap="3">
+          <Input
+            flex="1"
+            size="sm"
+            placeholder="Search by symbol, name or denom"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <Button
+            size="sm"
+            variant={showAll ? "solid" : "outline"}
+            flexShrink={0}
+            onClick={() => setShowAll((v) => !v)}
+          >
+            {showAll ? "Holdings only" : "Show all"}
+          </Button>
+        </HStack>
+
+        {/* Asset list */}
+        {rows.length === 0 ? (
+          <Center py="10">
+            <Text color="fg.muted">{emptyMessage}</Text>
+          </Center>
+        ) : (
+          <VStack align="stretch" gap="1">
+            {rows.map((a) => (
+              <PortfolioRow
+                key={a.denom}
+                asset={a}
+                logo={logo(a.denom)}
+                usd={usdValue(a.denom, a.amount)}
+              />
+            ))}
+          </VStack>
+        )}
+      </VStack>
+    </Box>
+  );
+}

@@ -9,6 +9,7 @@ import { Wizard } from "./components/wizard/Wizard";
 import { IsFirstRun, GetAccounts, GetNodeSnapshot } from "../wailsjs/go/main/App";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 import { StakingPage } from "./components/staking/StakingPage";
+import { PortfolioSection } from "./components/portfolio/PortfolioSection";
 import { PLACEHOLDER_SECTIONS } from "./sections";
 import type { SectionId } from "./theme";
 
@@ -142,6 +143,11 @@ function App() {
             onNavigate={handleTabChange}
             active={activeTab === "dashboard"}
           />
+        </SectionPane>
+
+        {/* Portfolio — asset holdings, kept mounted to preserve its polling. */}
+        <SectionPane active={activeTab === "portfolio"}>
+          <PortfolioSection address={activeAddress} proxyTarget={proxyTarget} />
         </SectionPane>
 
         {/* Earn — native staking, kept mounted to preserve its polling. */}
