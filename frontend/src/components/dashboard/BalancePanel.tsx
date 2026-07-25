@@ -10,6 +10,7 @@ import {
 } from "react-icons/lu";
 import { GetAllBalances, OpenURL } from "../../../wailsjs/go/main/App";
 import { useAssets } from "../../hooks/useAssets";
+import { useChainEvents } from "../../hooks/useChainEvents";
 import { TokenLogo } from "../TokenLogo";
 import { prettyAmount, uAmountToBigNumberAmount, toBigNumber } from "../../utils/amount";
 import { formatUsdAmount } from "../../utils/formatter";
@@ -162,6 +163,10 @@ export function BalancePanel({ address, label, proxyTarget, onNavigate, onShowAb
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [address, proxyTarget]);
+
+  // Live refresh: a tx touching the active address refreshes balances within a
+  // block (coalesced per block), instead of waiting for the poll interval.
+  useChainEvents(address, { onMatchingTx: () => refresh() });
 
   const otherBalances = walletBalances.filter((b) => b.address !== address);
   const otherTotal = otherBalances.reduce((sum, b) => sum + BigInt(b.amount || "0"), BigInt(0));

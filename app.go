@@ -13,6 +13,7 @@ import (
 	"github.com/bze-alphateam/bze-hub/internal/assets"
 	"github.com/bze-alphateam/bze-hub/internal/chain"
 	"github.com/bze-alphateam/bze-hub/internal/config"
+	"github.com/bze-alphateam/bze-hub/internal/events"
 	"github.com/bze-alphateam/bze-hub/internal/logging"
 	"github.com/bze-alphateam/bze-hub/internal/node"
 	"github.com/bze-alphateam/bze-hub/internal/proxy"
@@ -78,6 +79,9 @@ type App struct {
 
 	// Asset engine — resolves denoms (native/factory/ibc/lp) to token identity
 	assetEngine *assets.Engine
+
+	// Chain event stream — one WS subscription re-emitted as Wails events
+	eventStream *events.Stream
 }
 
 // NewApp creates a new App application struct.
@@ -366,6 +370,9 @@ func (a *App) setupNode(ctx context.Context) {
 	// and kick off a non-blocking background registry refresh.
 	a.initAssetEngine()
 
+	// 8d. Start the chain event stream (WS subscription → Wails events).
+	a.initEventStream()
+
 	// 9. Check for orphan node from previous session
 	orphanPID := node.CleanupOrphanNode()
 	a.nodeProcess = node.NewNodeProcess(ports)
@@ -546,6 +553,7 @@ func (a *App) startProxiesUsingExisting() {
 	logging.Info("app", "chain gRPC client initialized (local: %s, public: %s, rest: %s)", localGRPC, publicGRPC, restProxy)
 
 	a.initAssetEngine()
+	a.initEventStream()
 }
 
 // --- First-run detection ---
