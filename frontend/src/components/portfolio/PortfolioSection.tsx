@@ -6,13 +6,18 @@ import {
 import { LuRefreshCw, LuQrCode } from "react-icons/lu";
 import { useAssets } from "../../hooks/useAssets";
 import { useChainEvents } from "../../hooks/useChainEvents";
+import { useStakingData } from "../../hooks/useStakingData";
 import { PortfolioRow } from "./PortfolioRow";
 import { ReceiveModal } from "./ReceiveModal";
+import { AssetDetail } from "./AssetDetail";
 import { visibleAssets, totalUsdValue, usdLabel } from "./portfolioHelpers";
+import { NATIVE_DENOM, stakedUbzeFromOverview } from "./assetDetailHelpers";
 
 interface PortfolioSectionProps {
   address: string;
   proxyTarget: string;
+  /** Opens the Send flow for a denom (wired by the sibling Send story). */
+  onSend?: (denom: string) => void;
 }
 
 /**
@@ -22,15 +27,28 @@ interface PortfolioSectionProps {
  * `useAssets`; a tx touching the active address refreshes the list within a
  * block (coalesced) via `useChainEvents`.
  */
-export function PortfolioSection({ address, proxyTarget }: PortfolioSectionProps) {
-  const { assets, isLoading, error, reload, logo, usdValue } = useAssets(address, proxyTarget);
+export function PortfolioSection({ address, proxyTarget, onSend }: PortfolioSectionProps) {
+  const { assets, isLoading, error, reload, price, logo, usdValue } = useAssets(address, proxyTarget);
   const [search, setSearch] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
+  const [selectedDenom, setSelectedDenom] = useState<string | null>(null);
 
   // Live refresh: a tx touching the active address refreshes within a block,
   // instead of waiting for the poll interval.
   useChainEvents(address, { onMatchingTx: () => reload() });
+
+  // The selected asset (kept in sync as the list refreshes) and, only when the
+  // native token's detail is open, its staked amount. Passing an empty address to
+  // useStakingData keeps it idle for every other asset, so we never fetch the
+  // staking overview unless a BZE detail is actually being viewed.
+  const selected = useMemo(
+    () => assets.find((a) => a.denom === selectedDenom) ?? null,
+    [assets, selectedDenom]
+  );
+  const needsStaking = selectedDenom === NATIVE_DENOM;
+  const { data: staking } = useStakingData(needsStaking ? address : "", proxyTarget);
+  const stakedUAmount = needsStaking ? stakedUbzeFromOverview(staking) : null;
 
   const total = useMemo(() => totalUsdValue(assets, usdValue), [assets, usdValue]);
   const rows = useMemo(
@@ -141,6 +159,7 @@ export function PortfolioSection({ address, proxyTarget }: PortfolioSectionProps
                 asset={a}
                 logo={logo(a.denom)}
                 usd={usdValue(a.denom, a.amount)}
+                onSelect={() => setSelectedDenom(a.denom)}
               />
             ))}
           </VStack>
@@ -151,6 +170,19 @@ export function PortfolioSection({ address, proxyTarget }: PortfolioSectionProps
         isOpen={receiveOpen}
         onClose={() => setReceiveOpen(false)}
         address={address}
+      />
+
+      <AssetDetail
+        asset={selected}
+        isOpen={selected !== null}
+        onClose={() => setSelectedDenom(null)}
+        logo={selected ? logo(selected.denom) : ""}
+        price={selected ? price(selected.denom) : null}
+        stakedUAmount={stakedUAmount}
+        onSend={(denom) => {
+          setSelectedDenom(null);
+          onSend?.(denom);
+        }}
       />
     </Box>
   );

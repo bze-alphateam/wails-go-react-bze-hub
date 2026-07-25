@@ -17,6 +17,11 @@ vi.mock("../../hooks/useChainEvents", () => ({
     chainHandlers.onMatchingTx = handlers.onMatchingTx;
   },
 }));
+// Stub the staking hook — the detail view only fetches it for the native token,
+// and these tests don't exercise the staked breakdown (AssetDetail owns that).
+vi.mock("../../hooks/useStakingData", () => ({
+  useStakingData: () => ({ data: null, isLoading: false, error: null, reload: vi.fn() }),
+}));
 
 import { PortfolioSection } from "./PortfolioSection";
 
@@ -132,6 +137,18 @@ describe("PortfolioSection", () => {
     expect(screen.queryByText("ABC")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /show all/i }));
     expect(screen.getByText("ABC")).toBeInTheDocument();
+  });
+
+  it("opens the asset detail when a row is selected", () => {
+    mockAssets(held);
+    renderWithChakra(<PortfolioSection address="bze1addr" proxyTarget="public" />);
+
+    // The detail's copyable denom isn't shown until a row is clicked.
+    expect(screen.queryByText("uvdl")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("VDL"));
+    // Detail dialog now shows the denom and a Send action for that asset.
+    expect(screen.getByText("uvdl")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /send/i })).toBeInTheDocument();
   });
 
   it("refreshes on a matching chain tx without manual action", () => {
