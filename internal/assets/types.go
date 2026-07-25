@@ -34,7 +34,6 @@ type Asset struct {
 	Type     Type   `json:"type"`     // native | factory | ibc | lp
 	Verified bool   `json:"verified"` // trusted/known asset
 	Stable   bool   `json:"stable"`   // stablecoin
-	LogoRef  string `json:"logoRef"`  // reference to a logo (populated with images in a follow-up story)
 
 	// IBC carries the resolved trace metadata for ibc/* denoms; nil otherwise.
 	IBC *IBCInfo `json:"ibc,omitempty"`

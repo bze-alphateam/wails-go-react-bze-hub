@@ -1,5 +1,5 @@
 {
-  "version": "2026-07-24",
+  "version": "2026-07-24b",
   "chains": [
     {
       "chainName": "beezee",
@@ -15,7 +15,11 @@
             { "denom": "ubze", "exponent": 0 },
             { "denom": "bze", "exponent": 6 }
           ],
-          "logoRef": "beezee/ubze"
+          "coingeckoId": "bzedge",
+          "logoURIs": {
+            "svg": "https://raw.githubusercontent.com/cosmos/chain-registry/master/beezee/images/bze.svg",
+            "png": "https://raw.githubusercontent.com/cosmos/chain-registry/master/beezee/images/bze.png"
+          }
         },
         {
           "base": "factory/bze13gzq40che93tgfm9kzmkpjamah5nj0j73pyhqk/uvdl",
@@ -26,7 +30,11 @@
             { "denom": "factory/bze13gzq40che93tgfm9kzmkpjamah5nj0j73pyhqk/uvdl", "exponent": 0 },
             { "denom": "vdl", "exponent": 6 }
           ],
-          "logoRef": "beezee/uvdl"
+          "coingeckoId": "vidulum",
+          "logoURIs": {
+            "svg": "https://raw.githubusercontent.com/cosmos/chain-registry/master/beezee/images/vdl.svg",
+            "png": "https://raw.githubusercontent.com/cosmos/chain-registry/master/beezee/images/vdl.png"
+          }
         }
       ]
     },
@@ -44,7 +52,11 @@
             { "denom": "uosmo", "exponent": 0 },
             { "denom": "osmo", "exponent": 6 }
           ],
-          "logoRef": "osmosis/uosmo"
+          "coingeckoId": "osmosis",
+          "logoURIs": {
+            "svg": "https://raw.githubusercontent.com/cosmos/chain-registry/master/osmosis/images/osmo.svg",
+            "png": "https://raw.githubusercontent.com/cosmos/chain-registry/master/osmosis/images/osmo.png"
+          }
         }
       ]
     },
@@ -62,7 +74,11 @@
             { "denom": "uusdc", "exponent": 0 },
             { "denom": "usdc", "exponent": 6 }
           ],
-          "logoRef": "noble/uusdc"
+          "coingeckoId": "usd-coin",
+          "logoURIs": {
+            "svg": "https://raw.githubusercontent.com/cosmos/chain-registry/master/_non-cosmos/ethereum/images/usdc.svg",
+            "png": "https://raw.githubusercontent.com/cosmos/chain-registry/master/_non-cosmos/ethereum/images/usdc.png"
+          }
         }
       ]
     },
@@ -80,7 +96,11 @@
             { "denom": "aarch", "exponent": 0 },
             { "denom": "arch", "exponent": 18 }
           ],
-          "logoRef": "archway/aarch"
+          "coingeckoId": "archway",
+          "logoURIs": {
+            "svg": "https://raw.githubusercontent.com/cosmos/chain-registry/master/archway/images/arch.svg",
+            "png": "https://raw.githubusercontent.com/cosmos/chain-registry/master/archway/images/arch.png"
+          }
         }
       ]
     },
@@ -98,7 +118,11 @@
             { "denom": "ujkl", "exponent": 0 },
             { "denom": "jkl", "exponent": 6 }
           ],
-          "logoRef": "jackal/ujkl"
+          "coingeckoId": "jackal-protocol",
+          "logoURIs": {
+            "svg": "https://raw.githubusercontent.com/cosmos/chain-registry/master/jackal/images/jkl.svg",
+            "png": "https://raw.githubusercontent.com/cosmos/chain-registry/master/jackal/images/jkl.png"
+          }
         }
       ]
     },
@@ -116,7 +140,11 @@
             { "denom": "uflix", "exponent": 0 },
             { "denom": "flix", "exponent": 6 }
           ],
-          "logoRef": "omniflixhub/uflix"
+          "coingeckoId": "omniflix-network",
+          "logoURIs": {
+            "svg": "https://raw.githubusercontent.com/cosmos/chain-registry/master/omniflixhub/images/flix.svg",
+            "png": "https://raw.githubusercontent.com/cosmos/chain-registry/master/omniflixhub/images/flix.png"
+          }
         }
       ]
     },
@@ -134,7 +162,11 @@
             { "denom": "uatone", "exponent": 0 },
             { "denom": "atone", "exponent": 6 }
           ],
-          "logoRef": "atomone/uatone"
+          "coingeckoId": "atomone",
+          "logoURIs": {
+            "svg": "https://raw.githubusercontent.com/cosmos/chain-registry/master/atomone/images/atomone.svg",
+            "png": "https://raw.githubusercontent.com/cosmos/chain-registry/master/atomone/images/atomone.png"
+          }
         }
       ]
     }

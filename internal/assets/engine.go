@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/bze-alphateam/bze-hub/internal/logging"
 )
@@ -28,6 +29,10 @@ type Engine struct {
 	emit       func(event string, data interface{})
 	http       *http.Client
 	refreshURL string
+
+	prices   *priceStore
+	logos    *logoCache
+	priceURL string
 }
 
 // NewEngine builds an engine that is usable immediately: it loads the embedded
@@ -47,17 +52,24 @@ func NewEngine(rest RestClient, emit func(event string, data interface{})) (*Eng
 		logging.Debug("assets", "loaded registry cache (version %s)", cached.Version)
 	}
 
+	client := defaultHTTPClient()
 	return &Engine{
 		registry:   reg,
 		rest:       rest,
 		emit:       emit,
-		http:       defaultHTTPClient(),
+		http:       client,
 		refreshURL: DefaultRefreshURL,
+		prices:     newPriceStore(),
+		logos:      newLogoCache(client),
+		priceURL:   DefaultPriceURL,
 	}, nil
 }
 
 // SetRefreshURL overrides the remote snapshot URL (used in tests).
 func (e *Engine) SetRefreshURL(url string) { e.refreshURL = url }
+
+// SetPriceURL overrides the aggregator price URL (used in tests).
+func (e *Engine) SetPriceURL(url string) { e.priceURL = url }
 
 // snapshot returns the current registry pointer. The pointer is only ever
 // replaced (never mutated in place), so callers can use it without holding the
@@ -105,6 +117,123 @@ func (e *Engine) Refresh(ctx context.Context) {
 	}
 }
 
+// RefreshPrices fetches the aggregator price set once (throttled by priceTTL:
+// a call within the TTL window is a no-op so the periodic ticker and event-driven
+// calls can't hammer the endpoint), maps it onto chain denoms, stores it, and
+// emits UpdatedEvent so the frontend re-reads prices. On any fetch failure the
+// current (stale) prices are kept and no event is emitted. Best-effort — safe to
+// launch in a background goroutine.
+func (e *Engine) RefreshPrices(ctx context.Context) {
+	if e.priceURL == "" {
+		return
+	}
+	if !e.prices.needsRefresh(time.Now(), priceTTL) {
+		return
+	}
+	logging.Debug("assets", "refreshing prices from %s", e.priceURL)
+
+	raw, err := fetchAggregatorPrices(e.http, e.priceURL)
+	if err != nil {
+		logging.Info("assets", "price refresh skipped (using cached): %v", err)
+		return
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return
+	}
+
+	byID := indexUSDPrices(raw)
+	e.prices.set(byID, time.Now())
+	logging.Debug("assets", "prices refreshed (%d ids)", len(byID))
+	if e.emit != nil {
+		e.emit(UpdatedEvent, map[string]interface{}{"prices": len(byID)})
+	}
+}
+
+// priceForAsset returns the USD unit price for an asset given its BZE on-chain
+// denom and resolved identity. It looks up the asset's coingecko id (native and
+// factory denoms match a registry base directly; IBC vouchers via their origin
+// base denom) against the aggregator prices, falling back to a $1 pin for known
+// stablecoins. Returns "" when no price is known — the UI shows USD only for
+// priced assets, never "$0".
+func (e *Engine) priceForAsset(onChainDenom string, resolved Asset) string {
+	reg := e.snapshot()
+
+	var coingeckoID string
+	switch resolved.Type {
+	case TypeIBC:
+		if resolved.IBC != nil && resolved.IBC.Counterparty.BaseDenom != "" {
+			if ra, _, ok := reg.FindByBase(resolved.IBC.Counterparty.BaseDenom); ok {
+				coingeckoID = ra.CoingeckoID
+			}
+		}
+	default: // native, factory
+		if ra, _, ok := reg.FindByBase(onChainDenom); ok {
+			coingeckoID = ra.CoingeckoID
+		}
+	}
+
+	if p, ok := e.prices.priceForID(coingeckoID); ok {
+		return formatPrice(p)
+	}
+	// No live price: pin known stablecoins to $1, like the web does for USDC.
+	if IsStable(onChainDenom) {
+		return "1"
+	}
+	return ""
+}
+
+// Prices returns the current BZE on-chain denom → USD unit price map (decimal
+// strings) for the GetPrices binding. Only denoms with a known price appear.
+func (e *Engine) Prices() (map[string]string, error) {
+	all, err := e.AllAssets("")
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string)
+	for _, a := range all {
+		if a.Price != "" {
+			out[a.Denom] = a.Price
+		}
+	}
+	return out, nil
+}
+
+// LogoDataURL returns a data URL for a denom's logo, downloading and caching it
+// on first request. Returns "" when the denom has no registry logo or every
+// candidate download fails — the frontend then falls back to its placeholder.
+func (e *Engine) LogoDataURL(denom string) string {
+	if url, ok := e.logos.get(denom); ok {
+		return url
+	}
+	candidates := e.logoCandidates(denom)
+	if len(candidates) == 0 {
+		return e.logos.fetch(denom, nil) // memoises known-missing
+	}
+	return e.logos.fetch(denom, candidates)
+}
+
+// logoCandidates returns a denom's logo source URLs in priority order by finding
+// its registry asset. Native/factory denoms match a registry base directly; IBC
+// vouchers are resolved to their origin-chain base denom first. LP tokens have no
+// registry logo.
+func (e *Engine) logoCandidates(denom string) []string {
+	reg := e.snapshot()
+	switch ClassifyType(denom) {
+	case TypeNative, TypeFactory:
+		if ra, _, ok := reg.FindByBase(denom); ok {
+			return ra.LogoCandidates()
+		}
+	case TypeIBC:
+		asset, _ := e.newResolver().resolve(denom)
+		if asset.IBC != nil && asset.IBC.Counterparty.BaseDenom != "" {
+			if ra, _, ok := reg.FindByBase(asset.IBC.Counterparty.BaseDenom); ok {
+				return ra.LogoCandidates()
+			}
+		}
+	}
+	return nil
+}
+
 // Resolve returns the resolved identity of a single denom. LP denoms trigger a
 // pools fetch so the pair can be named; other types resolve without it.
 func (e *Engine) Resolve(denom string) Asset {
@@ -118,12 +247,15 @@ func (e *Engine) Resolve(denom string) Asset {
 	return a
 }
 
-// AssetBalance is a resolved asset paired with its on-chain total supply and the
-// active wallet's balance (both raw base-unit integer strings).
+// AssetBalance is a resolved asset paired with its on-chain total supply, the
+// active wallet's balance (both raw base-unit integer strings), and the asset's
+// USD unit price. Price is "" when no price is known — the UI shows USD only for
+// priced assets, never "$0".
 type AssetBalance struct {
 	Asset
 	Supply string `json:"supply"`
 	Amount string `json:"amount"` // active account's balance, "0" if none
+	Price  string `json:"price"`  // USD unit price as a decimal string, "" if unknown
 }
 
 // AllAssets resolves every non-excluded asset on the chain (from total supply),
@@ -156,7 +288,8 @@ func (e *Engine) AllAssets(address string) ([]AssetBalance, error) {
 		if amount == "" {
 			amount = "0"
 		}
-		out = append(out, AssetBalance{Asset: a, Supply: s.amount, Amount: amount})
+		price := e.priceForAsset(s.denom, a)
+		out = append(out, AssetBalance{Asset: a, Supply: s.amount, Amount: amount, Price: price})
 	}
 	return out, nil
 }
