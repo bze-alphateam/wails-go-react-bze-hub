@@ -1,5 +1,5 @@
-import { HStack, Box, Text, Badge } from "@chakra-ui/react";
-import { LuShield } from "react-icons/lu";
+import { HStack, Box, Text, Badge, IconButton } from "@chakra-ui/react";
+import { LuShield, LuSend } from "react-icons/lu";
 import type BigNumber from "bignumber.js";
 import type { AssetBalance } from "../../hooks/useAssets";
 import { TokenLogo } from "../TokenLogo";
@@ -14,20 +14,23 @@ interface PortfolioRowProps {
   usd: BigNumber | null;
   /** Opens this asset's detail view. */
   onSelect?: () => void;
+  /** When provided, a Send action is shown that opens the Send form for this denom. */
+  onSend?: (denom: string) => void;
 }
 
 /**
  * A single Portfolio row: logo, symbol with type/verified badges, name, the held
- * amount and (when priced) its USD value. Clicking (or pressing Enter/Space on)
- * the row opens the asset detail. Purely presentational — all data and USD math
- * is handed in by `PortfolioSection`.
+ * amount and (when priced) its USD value, plus an optional Send action. Clicking
+ * (or pressing Enter/Space on) the row opens the asset detail. Purely
+ * presentational — all data and USD math is handed in by `PortfolioSection`.
  */
-export function PortfolioRow({ asset, logo, usd, onSelect }: PortfolioRowProps) {
+export function PortfolioRow({ asset, logo, usd, onSelect, onSend }: PortfolioRowProps) {
   const badge = typeBadge(asset.type);
   const value = usdLabel(usd);
 
   return (
     <HStack
+      className="group"
       justify="space-between"
       px="3"
       py="2.5"
@@ -74,16 +77,33 @@ export function PortfolioRow({ asset, logo, usd, onSelect }: PortfolioRowProps) 
         </Box>
       </HStack>
 
-      <Box textAlign="right" flexShrink={0}>
-        <Text fontSize="sm" fontWeight="medium">
-          {prettyAmount(uAmountToBigNumberAmount(asset.amount, asset.decimals))}
-        </Text>
-        {value && (
-          <Text fontSize="xs" color="fg.muted">
-            {value}
+      <HStack gap="2" flexShrink={0}>
+        <Box textAlign="right">
+          <Text fontSize="sm" fontWeight="medium">
+            {prettyAmount(uAmountToBigNumberAmount(asset.amount, asset.decimals))}
           </Text>
+          {value && (
+            <Text fontSize="xs" color="fg.muted">
+              {value}
+            </Text>
+          )}
+        </Box>
+        {onSend && (
+          <IconButton
+            aria-label={`Send ${asset.symbol}`}
+            size="xs"
+            variant="ghost"
+            opacity={0}
+            _groupHover={{ opacity: 1 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSend(asset.denom);
+            }}
+          >
+            {LuSend({ size: 15 }) as React.ReactNode}
+          </IconButton>
         )}
-      </Box>
+      </HStack>
     </HStack>
   );
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, fireEvent } from "@testing-library/react";
+import { screen, fireEvent, within } from "@testing-library/react";
 import BigNumber from "bignumber.js";
 import { renderWithChakra } from "../../test/render";
 import type { AssetBalance } from "../../hooks/useAssets";
@@ -148,7 +148,8 @@ describe("PortfolioSection", () => {
     fireEvent.click(screen.getByText("VDL"));
     // Detail dialog now shows the denom and a Send action for that asset.
     expect(screen.getByText("uvdl")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /send/i })).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("button", { name: /send/i })).toBeInTheDocument();
   });
 
   it("refreshes on a matching chain tx without manual action", () => {

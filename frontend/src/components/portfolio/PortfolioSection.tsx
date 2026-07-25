@@ -3,21 +3,20 @@ import {
   Box, VStack, HStack, Text, Heading, Input, Button, IconButton,
   Center, Spinner,
 } from "@chakra-ui/react";
-import { LuRefreshCw, LuQrCode } from "react-icons/lu";
+import { LuRefreshCw, LuQrCode, LuSend } from "react-icons/lu";
 import { useAssets } from "../../hooks/useAssets";
 import { useChainEvents } from "../../hooks/useChainEvents";
 import { useStakingData } from "../../hooks/useStakingData";
 import { PortfolioRow } from "./PortfolioRow";
 import { ReceiveModal } from "./ReceiveModal";
 import { AssetDetail } from "./AssetDetail";
+import { SendForm } from "./SendForm";
 import { visibleAssets, totalUsdValue, usdLabel } from "./portfolioHelpers";
 import { NATIVE_DENOM, stakedUbzeFromOverview } from "./assetDetailHelpers";
 
 interface PortfolioSectionProps {
   address: string;
   proxyTarget: string;
-  /** Opens the Send flow for a denom (wired by the sibling Send story). */
-  onSend?: (denom: string) => void;
 }
 
 /**
@@ -27,12 +26,19 @@ interface PortfolioSectionProps {
  * `useAssets`; a tx touching the active address refreshes the list within a
  * block (coalesced) via `useChainEvents`.
  */
-export function PortfolioSection({ address, proxyTarget, onSend }: PortfolioSectionProps) {
+export function PortfolioSection({ address, proxyTarget }: PortfolioSectionProps) {
   const { assets, isLoading, error, reload, price, logo, usdValue } = useAssets(address, proxyTarget);
   const [search, setSearch] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [selectedDenom, setSelectedDenom] = useState<string | null>(null);
+  const [sendOpen, setSendOpen] = useState(false);
+  const [sendDenom, setSendDenom] = useState<string | undefined>(undefined);
+
+  const openSend = (denom?: string) => {
+    setSendDenom(denom);
+    setSendOpen(true);
+  };
 
   // Live refresh: a tx touching the active address refreshes within a block,
   // instead of waiting for the poll interval.
@@ -108,6 +114,16 @@ export function PortfolioSection({ address, proxyTarget, onSend }: PortfolioSect
             <Button
               size="sm"
               colorPalette="teal"
+              onClick={() => openSend()}
+            >
+              <HStack gap="2">
+                {LuSend({}) as React.ReactNode}
+                <Text>Send</Text>
+              </HStack>
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
               onClick={() => setReceiveOpen(true)}
             >
               <HStack gap="2">
@@ -160,6 +176,7 @@ export function PortfolioSection({ address, proxyTarget, onSend }: PortfolioSect
                 logo={logo(a.denom)}
                 usd={usdValue(a.denom, a.amount)}
                 onSelect={() => setSelectedDenom(a.denom)}
+                onSend={openSend}
               />
             ))}
           </VStack>
@@ -181,9 +198,21 @@ export function PortfolioSection({ address, proxyTarget, onSend }: PortfolioSect
         stakedUAmount={stakedUAmount}
         onSend={(denom) => {
           setSelectedDenom(null);
-          onSend?.(denom);
+          openSend(denom);
         }}
       />
+
+      {sendOpen && (
+        <SendForm
+          isOpen={sendOpen}
+          onClose={() => setSendOpen(false)}
+          address={address}
+          assets={assets}
+          logo={logo}
+          presetDenom={sendDenom}
+          onSent={reload}
+        />
+      )}
     </Box>
   );
 }
