@@ -3,10 +3,11 @@ import {
   Box, VStack, HStack, Text, Heading, Input, Button, IconButton,
   Center, Spinner,
 } from "@chakra-ui/react";
-import { LuRefreshCw } from "react-icons/lu";
+import { LuRefreshCw, LuQrCode } from "react-icons/lu";
 import { useAssets } from "../../hooks/useAssets";
 import { useChainEvents } from "../../hooks/useChainEvents";
 import { PortfolioRow } from "./PortfolioRow";
+import { ReceiveModal } from "./ReceiveModal";
 import { visibleAssets, totalUsdValue, usdLabel } from "./portfolioHelpers";
 
 interface PortfolioSectionProps {
@@ -25,6 +26,7 @@ export function PortfolioSection({ address, proxyTarget }: PortfolioSectionProps
   const { assets, isLoading, error, reload, logo, usdValue } = useAssets(address, proxyTarget);
   const [search, setSearch] = useState("");
   const [showAll, setShowAll] = useState(false);
+  const [receiveOpen, setReceiveOpen] = useState(false);
 
   // Live refresh: a tx touching the active address refreshes within a block,
   // instead of waiting for the poll interval.
@@ -84,15 +86,27 @@ export function PortfolioSection({ address, proxyTarget }: PortfolioSectionProps
               {usdLabel(total) ?? "$0.00"}
             </Heading>
           </Box>
-          <IconButton
-            aria-label="Refresh portfolio"
-            size="sm"
-            variant="ghost"
-            onClick={reload}
-            disabled={isLoading}
-          >
-            {LuRefreshCw({}) as React.ReactNode}
-          </IconButton>
+          <HStack gap="2">
+            <Button
+              size="sm"
+              colorPalette="teal"
+              onClick={() => setReceiveOpen(true)}
+            >
+              <HStack gap="2">
+                {LuQrCode({}) as React.ReactNode}
+                <Text>Receive</Text>
+              </HStack>
+            </Button>
+            <IconButton
+              aria-label="Refresh portfolio"
+              size="sm"
+              variant="ghost"
+              onClick={reload}
+              disabled={isLoading}
+            >
+              {LuRefreshCw({}) as React.ReactNode}
+            </IconButton>
+          </HStack>
         </HStack>
 
         {/* Search + holdings/all toggle */}
@@ -132,6 +146,12 @@ export function PortfolioSection({ address, proxyTarget }: PortfolioSectionProps
           </VStack>
         )}
       </VStack>
+
+      <ReceiveModal
+        isOpen={receiveOpen}
+        onClose={() => setReceiveOpen(false)}
+        address={address}
+      />
     </Box>
   );
 }
