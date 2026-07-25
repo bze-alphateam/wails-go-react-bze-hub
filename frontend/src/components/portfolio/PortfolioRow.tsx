@@ -12,14 +12,17 @@ interface PortfolioRowProps {
   logo: string;
   /** Pre-computed USD value of the held amount, or null when there's no price. */
   usd: BigNumber | null;
+  /** Opens this asset's detail view. */
+  onSelect?: () => void;
 }
 
 /**
  * A single Portfolio row: logo, symbol with type/verified badges, name, the held
- * amount and (when priced) its USD value. Purely presentational — all data and
- * USD math is handed in by `PortfolioSection`.
+ * amount and (when priced) its USD value. Clicking (or pressing Enter/Space on)
+ * the row opens the asset detail. Purely presentational — all data and USD math
+ * is handed in by `PortfolioSection`.
  */
-export function PortfolioRow({ asset, logo, usd }: PortfolioRowProps) {
+export function PortfolioRow({ asset, logo, usd, onSelect }: PortfolioRowProps) {
   const badge = typeBadge(asset.type);
   const value = usdLabel(usd);
 
@@ -29,7 +32,22 @@ export function PortfolioRow({ asset, logo, usd }: PortfolioRowProps) {
       px="3"
       py="2.5"
       borderRadius="lg"
+      cursor={onSelect ? "pointer" : undefined}
+      role={onSelect ? "button" : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      onClick={onSelect}
+      onKeyDown={
+        onSelect
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelect();
+              }
+            }
+          : undefined
+      }
       _hover={{ bg: "bg.subtle" }}
+      _focusVisible={{ outline: "2px solid", outlineColor: "teal.500", outlineOffset: "-2px" }}
     >
       <HStack gap="3" minW="0">
         <TokenLogo src={logo} symbol={asset.symbol} size="9" />
