@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { GetStakingOverview } from "../../wailsjs/go/main/App";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
+import { useChainEvents } from "./useChainEvents";
 import type { StakingOverview } from "../utils/stakingTypes";
 
 interface UseStakingDataResult {
@@ -75,6 +76,10 @@ export function useStakingData(
     });
     return cancel;
   }, [fetchData]);
+
+  // Live refresh: a tx involving the active address (delegate, claim, etc.)
+  // refreshes staking data within a block, coalesced so we fetch once per block.
+  useChainEvents(address, { onMatchingTx: () => fetchData() });
 
   return { data, isLoading, error, reload: fetchData };
 }
