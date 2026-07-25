@@ -20,7 +20,6 @@ describe("PlaceholderSection", () => {
       expect(section.milestone).toBeTruthy();
     }
     expect(PLACEHOLDER_SECTIONS.map((s) => s.id)).toEqual([
-      "portfolio",
       "trade",
       "burner",
       "create",
