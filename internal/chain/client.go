@@ -19,6 +19,7 @@ import (
 	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
 	"github.com/cosmos/cosmos-sdk/std"
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	disttypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"google.golang.org/grpc"
@@ -50,13 +51,16 @@ type Client struct {
 // restProxyAddr is used as fallback for endpoints that have protobuf type incompatibilities (e.g. mint AnnualProvisions).
 func NewClient(localGRPCAddr string, publicGRPCAddr string, restProxyAddr string, appState *state.AppState) *Client {
 	// Create interface registry and register all types we query OR sign.
-	// std covers base sdk.Msg/Tx + crypto pubkeys; the rest are the modules
-	// whose messages we build (staking, distribution) and query/build (rewards).
-	// cryptocodec is registered explicitly so secp256k1 pubkeys pack into the
-	// tx's SignerInfo Any.
+	// std covers base sdk.Msg/Tx + crypto pubkeys — but NOT the module messages,
+	// so every module whose messages we build must be registered here: bank
+	// (MsgSend), staking, distribution, and rewards. Without its registration a
+	// message's "@type" fails to resolve in DecodeMsgsJSON and the tx can never
+	// be signed. cryptocodec is registered explicitly so secp256k1 pubkeys pack
+	// into the tx's SignerInfo Any.
 	ir := codectypes.NewInterfaceRegistry()
 	std.RegisterInterfaces(ir)
 	cryptocodec.RegisterInterfaces(ir)
+	banktypes.RegisterInterfaces(ir)
 	stakingtypes.RegisterInterfaces(ir)
 	disttypes.RegisterInterfaces(ir)
 	rewardstypes.RegisterInterfaces(ir)
