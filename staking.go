@@ -288,21 +288,11 @@ func (a *App) SignAndBroadcast(signer string, msgsJSON string, memo string) (map
 	defer crypto.SecureZero(privKey.Key)
 
 	// Account number + sequence for the signer.
-	acctResp, err := a.chainClient.GetAccount(signer)
+	base, err := a.baseAccount(signer)
 	if err != nil {
-		return nil, fmt.Errorf("get account: %w", err)
+		return nil, err
 	}
-	var base authtypes.BaseAccount
-	if acctResp.Account != nil {
-		if err := unpackAccount(acctResp.Account, &base); err != nil {
-			return nil, fmt.Errorf("unpack account: %w", err)
-		}
-	}
-
-	chainID := "beezee-1"
-	if a.remoteConfig != nil && a.remoteConfig.ChainID != "" {
-		chainID = a.remoteConfig.ChainID
-	}
+	chainID := a.chainID()
 
 	// Estimate gas by simulating, then pad it and derive the fee. Never hardcoded.
 	simGas, err := a.chainClient.SimulateGas(msgs, privKey, chainID, base.AccountNumber, base.Sequence, memo)
@@ -310,10 +300,8 @@ func (a *App) SignAndBroadcast(signer string, msgsJSON string, memo string) (map
 		logging.Error("staking", "gas simulation failed: %v", err)
 		return nil, fmt.Errorf("estimate gas: %w", err)
 	}
-	gasLimit := uint64(math.Ceil(float64(simGas) * gasAdjustment))
-	feeUbze := int64(math.Ceil(float64(gasLimit) * gasPriceUbze))
-	fee := sdk.NewCoins(sdk.NewInt64Coin("ubze", feeUbze))
-	logging.Info("staking", "gas: simulated=%d adjusted=%d fee=%dubze", simGas, gasLimit, feeUbze)
+	gasLimit, fee := feeFromSimGas(simGas)
+	logging.Info("staking", "gas: simulated=%d adjusted=%d fee=%v", simGas, gasLimit, fee)
 
 	txBytes, err := a.chainClient.BuildSignedTxBytes(
 		msgs, privKey, chainID, base.AccountNumber, base.Sequence, fee, gasLimit, memo,
@@ -343,6 +331,86 @@ func (a *App) SignAndBroadcast(signer string, msgsJSON string, memo string) (map
 
 	logBroadcastResult(resp)
 	return resp, nil
+}
+
+// EstimateTxFee simulates the given messages and returns the fee the tx would pay,
+// without signing for broadcast or touching the mempool. It runs the exact same
+// path SignAndBroadcast uses to price a tx — simulate gas → ×1.5 adjustment →
+// 0.02 ubze/gas — so the preview a user sees matches what they'll actually pay.
+// Returns {"gas": <adjusted gas limit>, "amount": "<ubze fee>", "denom": "ubze"}.
+// The signing key is loaded only to build the simulation tx (the BZE ante handler
+// inspects signer info even in simulation) and is zeroed immediately after.
+func (a *App) EstimateTxFee(signer string, msgsJSON string, memo string) (map[string]interface{}, error) {
+	if a.chainClient == nil {
+		return nil, fmt.Errorf("chain client not initialized")
+	}
+	if signer == "" {
+		signer = a.store.ActiveAddress
+	}
+
+	msgs, err := a.chainClient.DecodeMsgsJSON(msgsJSON)
+	if err != nil {
+		return nil, fmt.Errorf("decode messages: %w", err)
+	}
+
+	privKey, err := a.wallet.PrivKey(signer, a.password)
+	if err != nil {
+		return nil, fmt.Errorf("load signing key: %w", err)
+	}
+	defer crypto.SecureZero(privKey.Key)
+
+	base, err := a.baseAccount(signer)
+	if err != nil {
+		return nil, err
+	}
+
+	simGas, err := a.chainClient.SimulateGas(msgs, privKey, a.chainID(), base.AccountNumber, base.Sequence, memo)
+	if err != nil {
+		logging.Error("staking", "fee estimate simulation failed: %v", err)
+		return nil, fmt.Errorf("estimate gas: %w", err)
+	}
+	gasLimit, fee := feeFromSimGas(simGas)
+
+	return map[string]interface{}{
+		"gas":    gasLimit,
+		"amount": fee.AmountOf("ubze").String(),
+		"denom":  "ubze",
+	}, nil
+}
+
+// feeFromSimGas turns a simulated gas figure into the padded gas limit and the fee
+// coins the tx should carry: gas × gasAdjustment, then × gasPriceUbze ubze/gas.
+// The single place this arithmetic lives, shared by broadcast and fee preview.
+func feeFromSimGas(simGas uint64) (uint64, sdk.Coins) {
+	gasLimit := uint64(math.Ceil(float64(simGas) * gasAdjustment))
+	feeUbze := int64(math.Ceil(float64(gasLimit) * gasPriceUbze))
+	return gasLimit, sdk.NewCoins(sdk.NewInt64Coin("ubze", feeUbze))
+}
+
+// baseAccount fetches the signer's on-chain account and unpacks its number and
+// sequence — the auth info every signed/simulated tx needs. A never-seen account
+// (nil Account) yields a zero-valued BaseAccount, which is correct for a first tx.
+func (a *App) baseAccount(signer string) (authtypes.BaseAccount, error) {
+	var base authtypes.BaseAccount
+	acctResp, err := a.chainClient.GetAccount(signer)
+	if err != nil {
+		return base, fmt.Errorf("get account: %w", err)
+	}
+	if acctResp.Account != nil {
+		if err := unpackAccount(acctResp.Account, &base); err != nil {
+			return base, fmt.Errorf("unpack account: %w", err)
+		}
+	}
+	return base, nil
+}
+
+// chainID resolves the chain id to sign for: the remote config's value when
+// available, else the beezee-1 mainnet default.
+func (a *App) chainID() string {
+	if a.remoteConfig != nil && a.remoteConfig.ChainID != "" {
+		return a.remoteConfig.ChainID
+	}
+	return "beezee-1"
 }
 
 // GetTxStatus looks up a previously-broadcast tx by hash to confirm its on-chain
