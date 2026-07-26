@@ -42,6 +42,31 @@ func TestParseBroadcastOutcome_NoTxResponse(t *testing.T) {
 	}
 }
 
+func TestFeeFromSimGas(t *testing.T) {
+	cases := []struct {
+		name        string
+		simGas      uint64
+		wantGas     uint64
+		wantFeeUbze string
+	}{
+		// gasLimit = ceil(simGas × 1.5); fee = ceil(gasLimit × 0.02) ubze.
+		{"typical send", 80000, 120000, "2400"},
+		{"rounds gas and fee up", 66667, 100001, "2001"}, // 66667×1.5=100000.5→100001; ×0.02=2000.02→2001
+		{"zero gas", 0, 0, "0"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gasLimit, fee := feeFromSimGas(tc.simGas)
+			if gasLimit != tc.wantGas {
+				t.Errorf("gasLimit = %d, want %d", gasLimit, tc.wantGas)
+			}
+			if got := fee.AmountOf("ubze").String(); got != tc.wantFeeUbze {
+				t.Errorf("fee = %s ubze, want %s", got, tc.wantFeeUbze)
+			}
+		})
+	}
+}
+
 func TestAsInt(t *testing.T) {
 	if asInt(float64(7)) != 7 {
 		t.Error("float64 7 should be 7")
