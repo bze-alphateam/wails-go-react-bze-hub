@@ -78,6 +78,34 @@ func (a *App) GetMarketParams() (tradebin.MarketParams, error) {
 	return params, nil
 }
 
+// BuildOrderMessages returns the ordered tradebin message list for placing an
+// order (fill crossing resting orders, then place the remainder as a limit
+// order), for the frontend to broadcast as one tx via SignAndBroadcast. amount
+// and price are chain-native strings (u-amount integer / u-price decimal); the
+// frontend converts from display units first. Node-sourced (reads the opposite
+// side of the book).
+func (a *App) BuildOrderMessages(marketId, address string, isBuy bool, amount, price string) ([]map[string]interface{}, error) {
+	if a.chainClient == nil {
+		return nil, fmt.Errorf("chain client not initialized")
+	}
+	if address == "" {
+		address = a.appState.GetActiveAddress()
+	}
+	msgs, err := tradebin.BuildOrderMessages(a.chainClient, marketId, address, isBuy, amount, price)
+	if err != nil {
+		logging.Error("tradebin", "BuildOrderMessages %s: %v", marketId, err)
+		return nil, fmt.Errorf("build order messages: %w", err)
+	}
+	return msgs, nil
+}
+
+// ValidateOrderInput mirrors the chain's stateless order rules (amount/price
+// bounds, min-amount) so a form can reject invalid input before broadcasting.
+// Returns nil when valid, or a human-readable error the form can surface.
+func (a *App) ValidateOrderInput(marketId string, isBuy bool, amount, price string) error {
+	return tradebin.ValidateOrderInput(marketId, isBuy, amount, price)
+}
+
 // GetMarketHistory returns recent trades for a market from the aggregator.
 func (a *App) GetMarketHistory(marketId string) ([]tradebin.Trade, error) {
 	trades, err := a.aggregator().MarketHistory(marketId)
