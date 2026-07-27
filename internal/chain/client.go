@@ -13,6 +13,7 @@ import (
 	"github.com/bze-alphateam/bze-hub/internal/logging"
 	"github.com/bze-alphateam/bze-hub/internal/state"
 	rewardstypes "github.com/bze-alphateam/bze/x/rewards/types"
+	tradebintypes "github.com/bze-alphateam/bze/x/tradebin/types"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -53,10 +54,12 @@ func NewClient(localGRPCAddr string, publicGRPCAddr string, restProxyAddr string
 	// Create interface registry and register all types we query OR sign.
 	// std covers base sdk.Msg/Tx + crypto pubkeys — but NOT the module messages,
 	// so every module whose messages we build must be registered here: bank
-	// (MsgSend), staking, distribution, and rewards. Without its registration a
-	// message's "@type" fails to resolve in DecodeMsgsJSON and the tx can never
-	// be signed. cryptocodec is registered explicitly so secp256k1 pubkeys pack
-	// into the tx's SignerInfo Any.
+	// (MsgSend), staking, distribution, rewards, and tradebin. Without its
+	// registration a message's "@type" fails to resolve in DecodeMsgsJSON and the
+	// tx can never be signed. cryptocodec is registered explicitly so secp256k1
+	// pubkeys pack into the tx's SignerInfo Any. tradebin registers every DEX/AMM
+	// message — MsgMultiSwap (used by the Trade swap) now, and the order/liquidity
+	// messages the M3 work will sign later.
 	ir := codectypes.NewInterfaceRegistry()
 	std.RegisterInterfaces(ir)
 	cryptocodec.RegisterInterfaces(ir)
@@ -64,6 +67,7 @@ func NewClient(localGRPCAddr string, publicGRPCAddr string, restProxyAddr string
 	stakingtypes.RegisterInterfaces(ir)
 	disttypes.RegisterInterfaces(ir)
 	rewardstypes.RegisterInterfaces(ir)
+	tradebintypes.RegisterInterfaces(ir)
 
 	cdc := codec.NewProtoCodec(ir)
 
