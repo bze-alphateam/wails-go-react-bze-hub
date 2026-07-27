@@ -19,8 +19,8 @@ describe("PlaceholderSection", () => {
     for (const section of PLACEHOLDER_SECTIONS) {
       expect(section.milestone).toBeTruthy();
     }
+    // Trade went live in M2 (BHUB-23 swap card), so it's no longer a placeholder.
     expect(PLACEHOLDER_SECTIONS.map((s) => s.id)).toEqual([
-      "trade",
       "burner",
       "create",
     ]);

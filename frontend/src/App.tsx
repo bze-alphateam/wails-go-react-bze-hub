@@ -10,6 +10,7 @@ import { IsFirstRun, GetAccounts, GetNodeSnapshot } from "../wailsjs/go/main/App
 import { EventsOn } from "../wailsjs/runtime/runtime";
 import { StakingPage } from "./components/staking/StakingPage";
 import { PortfolioSection } from "./components/portfolio/PortfolioSection";
+import { TradeSection } from "./components/trade/TradeSection";
 import { PLACEHOLDER_SECTIONS } from "./sections";
 import type { SectionId } from "./theme";
 
@@ -148,6 +149,11 @@ function App() {
         {/* Portfolio — asset holdings, kept mounted to preserve its polling. */}
         <SectionPane active={activeTab === "portfolio"}>
           <PortfolioSection address={activeAddress} proxyTarget={proxyTarget} />
+        </SectionPane>
+
+        {/* Trade — swap card, kept mounted to preserve quoting and inputs. */}
+        <SectionPane active={activeTab === "trade"}>
+          <TradeSection address={activeAddress} proxyTarget={proxyTarget} />
         </SectionPane>
 
         {/* Earn — native staking, kept mounted to preserve its polling. */}
