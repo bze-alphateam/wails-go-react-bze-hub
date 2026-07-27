@@ -21,6 +21,13 @@ export const SLIPPAGE_PRESETS = [0.5, 1, 2] as const;
 export const DEFAULT_SLIPPAGE = 0.5;
 
 /**
+ * Price-impact threshold (percent) above which a swap requires an explicit
+ * acknowledgement before it can be executed. The web DEX displays impact but has
+ * no hard gate; 5% is the hub's default — adjust here if a different bar is wanted.
+ */
+export const PRICE_IMPACT_ACK_THRESHOLD = 5;
+
+/**
  * Filter assets by a free-text query against symbol or name (case-insensitive).
  * An empty/whitespace query returns the list unchanged.
  */
