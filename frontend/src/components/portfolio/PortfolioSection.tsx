@@ -17,6 +17,8 @@ import { NATIVE_DENOM, stakedUbzeFromOverview } from "./assetDetailHelpers";
 interface PortfolioSectionProps {
   address: string;
   proxyTarget: string;
+  /** Deep-link an asset into the Trade section's swap input (M2). */
+  onTrade?: (denom: string) => void;
 }
 
 /**
@@ -26,7 +28,7 @@ interface PortfolioSectionProps {
  * `useAssets`; a tx touching the active address refreshes the list within a
  * block (coalesced) via `useChainEvents`.
  */
-export function PortfolioSection({ address, proxyTarget }: PortfolioSectionProps) {
+export function PortfolioSection({ address, proxyTarget, onTrade }: PortfolioSectionProps) {
   const { assets, isLoading, error, reload, price, logo, usdValue } = useAssets(address, proxyTarget);
   const [search, setSearch] = useState("");
   const [showAll, setShowAll] = useState(false);
@@ -200,6 +202,14 @@ export function PortfolioSection({ address, proxyTarget }: PortfolioSectionProps
           setSelectedDenom(null);
           openSend(denom);
         }}
+        onTrade={
+          onTrade
+            ? (denom) => {
+                setSelectedDenom(null);
+                onTrade(denom);
+              }
+            : undefined
+        }
       />
 
       {sendOpen && (
