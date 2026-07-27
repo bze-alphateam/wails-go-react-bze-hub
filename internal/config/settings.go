@@ -42,6 +42,12 @@ type AppSettings struct {
 	// (e.g. "view.earn" → "simple"|"advanced"). Empty on fresh install, so
 	// every section defaults to "simple". Persisted per device.
 	SectionViews map[string]string `json:"sectionViews"`
+
+	// AggregatorHost is the base URL of the public DEX aggregator API (24h
+	// tickers, trade history, candles, pool stats) — data the local node cannot
+	// serve. Same source the web dapp uses; configurable so a self-hoster can
+	// point at their own aggregator. Default: https://getbze.com.
+	AggregatorHost string `json:"aggregatorHost"`
 }
 
 // DefaultSettings returns settings with all defaults applied.
@@ -67,6 +73,7 @@ func DefaultSettings() AppSettings {
 		CrossCheckBlockDelta:      2,
 		DoctorRetryDelaysSec:      []int{5, 30, 120, 300},
 		SectionViews:              map[string]string{},
+		AggregatorHost:            "https://getbze.com",
 	}
 }
 
