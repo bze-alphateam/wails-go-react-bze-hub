@@ -23,6 +23,8 @@ function App() {
   const [activeLabel, setActiveLabel] = useState("");
   const [proxyTarget, setProxyTarget] = useState("public");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Portfolio → Trade deep link: the token to preselect in the swap card.
+  const [tradePreselect, setTradePreselect] = useState<string | null>(null);
 
   useEffect(() => {
     checkFirstRun();
@@ -65,6 +67,13 @@ function App() {
 
   function handleTabChange(tabId: string) {
     setActiveTab(tabId as SectionId);
+  }
+
+  // Deep-link an asset from Portfolio into the Trade swap card: preselect the
+  // token as the input and switch to the Trade section (Simple view).
+  function handleTradeAsset(denom: string) {
+    setTradePreselect(denom);
+    setActiveTab("trade");
   }
 
   async function checkFirstRun() {
@@ -148,12 +157,21 @@ function App() {
 
         {/* Portfolio — asset holdings, kept mounted to preserve its polling. */}
         <SectionPane active={activeTab === "portfolio"}>
-          <PortfolioSection address={activeAddress} proxyTarget={proxyTarget} />
+          <PortfolioSection
+            address={activeAddress}
+            proxyTarget={proxyTarget}
+            onTrade={handleTradeAsset}
+          />
         </SectionPane>
 
         {/* Trade — swap card, kept mounted to preserve quoting and inputs. */}
         <SectionPane active={activeTab === "trade"}>
-          <TradeSection address={activeAddress} proxyTarget={proxyTarget} />
+          <TradeSection
+            address={activeAddress}
+            proxyTarget={proxyTarget}
+            preselectDenom={tradePreselect}
+            onPreselectConsumed={() => setTradePreselect(null)}
+          />
         </SectionPane>
 
         {/* Earn — native staking, kept mounted to preserve its polling. */}

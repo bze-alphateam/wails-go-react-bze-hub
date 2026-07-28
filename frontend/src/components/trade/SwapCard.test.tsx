@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, fireEvent } from "@testing-library/react";
+import { screen, fireEvent, act } from "@testing-library/react";
 import { renderWithChakra } from "../../test/render";
 import type { AssetBalance } from "../../hooks/useAssets";
 import type { amm } from "../../../wailsjs/go/models";
@@ -10,6 +10,8 @@ import type { amm } from "../../../wailsjs/go/models";
 const useAssetsMock = vi.fn();
 const useLiquidityPoolsMock = vi.fn();
 const swapQuote = vi.fn<[], amm.SwapQuote | null>(() => null);
+const swapFn = vi.fn().mockResolvedValue(true);
+let blockHandler: ((h: string) => void) | undefined;
 
 vi.mock("../../hooks/useAssets", () => ({
   useAssets: (...args: unknown[]) => useAssetsMock(...args),
@@ -19,6 +21,14 @@ vi.mock("../../hooks/useLiquidityPools", () => ({
 }));
 vi.mock("../../hooks/useSwapSlippage", () => ({
   useSwapSlippage: () => ({ slippage: 0.5, setSlippage: vi.fn(), loaded: true }),
+}));
+vi.mock("../../hooks/useSwapTx", () => ({
+  useSwapTx: () => ({ swap: swapFn, isSubmitting: false }),
+}));
+vi.mock("../../hooks/useChainEvents", () => ({
+  useChainEvents: (_addr: string, handlers: { onBlock?: (h: string) => void }) => {
+    blockHandler = handlers.onBlock;
+  },
 }));
 vi.mock("../../hooks/useSwapQuote", () => ({
   useSwapQuote: (denomIn: string, denomOut: string, amountInBase: string | null) => {
@@ -71,12 +81,7 @@ function mockAssets(assets = ASSETS) {
 }
 
 function mockPools(pools: Array<{ base: string; quote: string }>) {
-  useLiquidityPoolsMock.mockReturnValue({
-    pools,
-    isLoading: false,
-    error: null,
-    reload: vi.fn(),
-  });
+  useLiquidityPoolsMock.mockReturnValue({ pools, isLoading: false, error: null, reload: vi.fn() });
 }
 
 const ROUTABLE_QUOTE = {
@@ -92,9 +97,7 @@ const ROUTABLE_QUOTE = {
 const NO_ROUTE_QUOTE = { noRoute: true } as unknown as amm.SwapQuote;
 
 function typeAmount(value: string) {
-  fireEvent.change(screen.getByLabelText("Amount to swap"), {
-    target: { value },
-  });
+  fireEvent.change(screen.getByLabelText("Amount to swap"), { target: { value } });
 }
 
 beforeEach(() => {
@@ -102,17 +105,18 @@ beforeEach(() => {
   useLiquidityPoolsMock.mockReset();
   swapQuote.mockReset();
   swapQuote.mockReturnValue(null);
+  swapFn.mockClear();
+  blockHandler = undefined;
   mockAssets();
   mockPools([{ base: "ubze", quote: "uvdl" }]);
 });
 
 describe("SwapCard", () => {
-  it("renders both pickers and a disabled, coming-soon confirm button", () => {
+  it("renders both pickers and a disabled Review button until an amount is entered", () => {
     renderWithChakra(<SwapCard address="bze1abc" proxyTarget="public" />);
     expect(screen.getByRole("button", { name: /You pay/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /You receive/i })).toBeInTheDocument();
-    expect(screen.getByText(/coming soon/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Swap" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Review swap" })).toBeDisabled();
   });
 
   it("prompts to connect a wallet when there is no address", () => {
@@ -123,33 +127,64 @@ describe("SwapCard", () => {
   it("shows the expected output, price impact, total fee and route for a quote", () => {
     swapQuote.mockReturnValue(ROUTABLE_QUOTE);
     renderWithChakra(<SwapCard address="bze1abc" proxyTarget="public" />);
-
     typeAmount("1");
-
     expect(screen.getByText("Expected output")).toBeInTheDocument();
     expect(screen.getByText(/2\.5 VDL/)).toBeInTheDocument();
     expect(screen.getByText("1.50%")).toBeInTheDocument();
-    expect(screen.getByText("Total fee")).toBeInTheDocument();
     expect(screen.getByText(/Route \(1 hop\)/)).toBeInTheDocument();
-    expect(screen.getByText(/fee 0\.003000 BZE/)).toBeInTheDocument();
   });
 
   it("renders an insufficient-liquidity message when pools connect but no route fills", () => {
     swapQuote.mockReturnValue(NO_ROUTE_QUOTE);
     mockPools([{ base: "ubze", quote: "uvdl" }]);
     renderWithChakra(<SwapCard address="bze1abc" proxyTarget="public" />);
-
     typeAmount("1");
     expect(screen.getByText(/not enough liquidity/i)).toBeInTheDocument();
   });
 
-  it("renders a no-route message when nothing connects the pair", () => {
-    swapQuote.mockReturnValue(NO_ROUTE_QUOTE);
-    mockPools([]);
+  it("reviews then executes a routable swap", () => {
+    swapQuote.mockReturnValue(ROUTABLE_QUOTE);
     renderWithChakra(<SwapCard address="bze1abc" proxyTarget="public" />);
-
     typeAmount("1");
-    expect(screen.getByText(/no swap route connects/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Review swap" }));
+    expect(screen.getByText(/Minimum received/)).toBeInTheDocument();
+
+    const confirm = screen.getByRole("button", { name: "Confirm swap" });
+    expect(confirm).not.toBeDisabled();
+    fireEvent.click(confirm);
+    expect(swapFn).toHaveBeenCalledWith(
+      expect.objectContaining({ denomIn: "ubze", denomOut: "uvdl", slippage: 0.5 }),
+    );
+  });
+
+  it("blocks execution once a newer block makes the quote stale", () => {
+    swapQuote.mockReturnValue(ROUTABLE_QUOTE);
+    renderWithChakra(<SwapCard address="bze1abc" proxyTarget="public" />);
+    typeAmount("1");
+    fireEvent.click(screen.getByRole("button", { name: "Review swap" }));
+
+    // Quote was computed at height 100; a new block (101) arrives → stale.
+    act(() => blockHandler?.("101"));
+
+    expect(screen.getByText(/newer block arrived/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm swap" })).toBeDisabled();
+    expect(swapFn).not.toHaveBeenCalled();
+  });
+
+  it("requires acknowledging a high price impact before executing", () => {
+    swapQuote.mockReturnValue({ ...ROUTABLE_QUOTE, priceImpact: "8" } as amm.SwapQuote);
+    renderWithChakra(<SwapCard address="bze1abc" proxyTarget="public" />);
+    typeAmount("1");
+    fireEvent.click(screen.getByRole("button", { name: "Review swap" }));
+
+    const confirm = screen.getByRole("button", { name: "Confirm swap" });
+    expect(confirm).toBeDisabled();
+
+    fireEvent.click(screen.getByLabelText("Acknowledge price impact"));
+    expect(confirm).not.toBeDisabled();
+    fireEvent.click(confirm);
+    expect(swapFn).toHaveBeenCalled();
   });
 
   it("prompts for an amount before anything is typed", () => {

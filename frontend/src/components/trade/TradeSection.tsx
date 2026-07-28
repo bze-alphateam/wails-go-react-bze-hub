@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Box, VStack, HStack, Text, Center, Badge } from "@chakra-ui/react";
 import { LuArrowLeftRight } from "react-icons/lu";
 import { SectionTabs } from "../SectionTabs";
@@ -7,15 +8,30 @@ import { SwapCard } from "./SwapCard";
 interface TradeSectionProps {
   address: string;
   proxyTarget: string;
+  /** Denom to preselect as the swap input (Portfolio → Trade deep link). */
+  preselectDenom?: string | null;
+  /** Called once the preselect denom has been applied, so it can be cleared. */
+  onPreselectConsumed?: () => void;
 }
 
 /**
  * The Trade section. Simple view is the swap card (this story); Advanced view is
  * a placeholder until markets & the orderbook land (BHUB-12 / M3). The
- * Simple/Advanced choice persists per section via `useSectionView`.
+ * Simple/Advanced choice persists per section via `useSectionView`. A Portfolio
+ * "Trade" deep link forces the Simple view and preselects the token.
  */
-export function TradeSection({ address, proxyTarget }: TradeSectionProps) {
+export function TradeSection({
+  address,
+  proxyTarget,
+  preselectDenom,
+  onPreselectConsumed,
+}: TradeSectionProps) {
   const { view, setView } = useSectionView("trade");
+
+  // A deep link always lands on the Simple swap view.
+  useEffect(() => {
+    if (preselectDenom) setView("simple");
+  }, [preselectDenom, setView]);
 
   return (
     <Box h="100%" overflowY="auto" p="4">
@@ -28,7 +44,12 @@ export function TradeSection({ address, proxyTarget }: TradeSectionProps) {
         </HStack>
 
         {view === "simple" ? (
-          <SwapCard address={address} proxyTarget={proxyTarget} />
+          <SwapCard
+            address={address}
+            proxyTarget={proxyTarget}
+            preselectDenom={preselectDenom}
+            onPreselectConsumed={onPreselectConsumed}
+          />
         ) : (
           <AdvancedPlaceholder />
         )}
