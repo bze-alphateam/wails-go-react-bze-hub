@@ -29,11 +29,14 @@ type Registry struct {
 	classifiers []Classifier
 }
 
-// NewRegistry returns a registry preloaded with the core block + tx classifiers.
+// NewRegistry returns a registry preloaded with the core block + tx classifiers
+// plus the tradebin market classifiers (orderbook/trade).
 func NewRegistry() *Registry {
 	r := &Registry{}
 	r.Register(classifyBlock)
 	r.Register(classifyTx)
+	r.Register(classifyOrderbook)
+	r.Register(classifyTrade)
 	return r
 }
 
@@ -80,6 +83,72 @@ func classifyTx(msg *rpcMessage) []Event {
 			"addresses": extractAddresses(msg.Result.Events),
 		},
 	}}
+}
+
+// tradebin typed-event names (proto message names) whose emission means the
+// aggregated order book for a market changed — an order was placed, saved,
+// cancelled or filled. Emitted via EmitTypedEvent, so each surfaces in the
+// composite-event map as "<name>.<field>".
+var orderbookEventTypes = []string{
+	"bze.tradebin.OrderCreateMessageEvent",
+	"bze.tradebin.OrderSavedEvent",
+	"bze.tradebin.OrderCanceledEvent",
+	"bze.tradebin.OrderCancelMessageEvent",
+	"bze.tradebin.OrderExecutedEvent",
+}
+
+// tradeEventTypes are the tradebin events that represent an executed order-book
+// trade (feeds recent-trades + chart). AMM SwapEvent is intentionally excluded —
+// it is a pool event, not an order-book market trade.
+var tradeEventTypes = []string{
+	"bze.tradebin.OrderExecutedEvent",
+}
+
+// classifyOrderbook emits chain:orderbook, one per distinct market whose book
+// changed in this tx.
+func classifyOrderbook(msg *rpcMessage) []Event {
+	return marketEvents(OrderbookEvent, msg.Result.Events, orderbookEventTypes)
+}
+
+// classifyTrade emits chain:trade, one per distinct market that saw a trade.
+func classifyTrade(msg *rpcMessage) []Event {
+	return marketEvents(TradeEvent, msg.Result.Events, tradeEventTypes)
+}
+
+// marketEvents returns one Event (named name, payload {marketId}) per distinct
+// market id found under any of the given tradebin event types. The market id
+// lives under "<type>.market_id" (or "<type>.marketId" — OrderCancelMessageEvent
+// spells it camelCase). Typed-event attribute values are JSON-encoded, so string
+// values arrive quoted and are unquoted here.
+func marketEvents(name string, events map[string][]string, eventTypes []string) []Event {
+	seen := map[string]bool{}
+	var out []Event
+	for _, et := range eventTypes {
+		for _, key := range []string{et + ".market_id", et + ".marketId"} {
+			for _, v := range events[key] {
+				id := unquoteAttr(v)
+				if id == "" || seen[id] {
+					continue
+				}
+				seen[id] = true
+				out = append(out, Event{Name: name, Data: map[string]interface{}{"marketId": id}})
+			}
+		}
+	}
+	return out
+}
+
+// unquoteAttr strips the surrounding quotes from a JSON-encoded typed-event
+// string attribute. Plain (non-typed) attributes arrive unquoted and pass
+// through unchanged.
+func unquoteAttr(s string) string {
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		var out string
+		if err := json.Unmarshal([]byte(s), &out); err == nil {
+			return out
+		}
+	}
+	return s
 }
 
 // blockHeight pulls block.header.height out of a NewBlock data value.

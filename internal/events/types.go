@@ -18,6 +18,14 @@ const (
 	// TxEvent fires per delivered tx; payload {height, addresses} — the involved
 	// account addresses so the frontend can filter for the active wallet.
 	TxEvent = "chain:tx"
+	// OrderbookEvent fires when a tradebin order on a market is created,
+	// cancelled or filled (the aggregated book changed); payload {marketId}. One
+	// event per distinct market touched. The frontend refreshes only the open
+	// market's orderbook.
+	OrderbookEvent = "chain:orderbook"
+	// TradeEvent fires when a trade executes on a market; payload {marketId}.
+	// Feeds the recent-trades list and chart refresh for the open market.
+	TradeEvent = "chain:trade"
 )
 
 // CometBFT subscription queries. One connection multiplexes both.
