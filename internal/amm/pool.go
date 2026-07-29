@@ -29,6 +29,10 @@ type Pool struct {
 	LPDenom      string `json:"lpDenom"`
 	Creator      string `json:"creator"`
 	Fee          string `json:"fee"`
+	// FeeProviders is the fraction of Fee routed to liquidity providers
+	// (fee_dest.providers on the chain pool). The frontend uses it to compute
+	// pool APR the same way the web does; "" when the pool has no fee split.
+	FeeProviders string `json:"feeProviders"`
 	ReserveBase  string `json:"reserveBase"`
 	ReserveQuote string `json:"reserveQuote"`
 	Stable       bool   `json:"stable"`
@@ -63,6 +67,9 @@ func FetchLiquidityPools(rest RestClient) ([]Pool, error) {
 			Fee:          asString(m["fee"]),
 			ReserveBase:  asString(m["reserve_base"]),
 			ReserveQuote: asString(m["reserve_quote"]),
+		}
+		if feeDest, ok := asMap(m["fee_dest"]); ok {
+			pool.FeeProviders = asString(feeDest["providers"])
 		}
 		pool.Stable, _ = m["stable"].(bool)
 		pools = append(pools, pool)

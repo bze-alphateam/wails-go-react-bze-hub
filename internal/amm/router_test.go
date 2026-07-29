@@ -321,6 +321,11 @@ func TestFetchLiquidityPools(t *testing.T) {
 					"reserve_base":  "1000000",
 					"reserve_quote": "2000000",
 					"stable":        false,
+					"fee_dest": map[string]interface{}{
+						"providers": "0.800000000000000000",
+						"treasury":  "0.100000000000000000",
+						"burner":    "0.100000000000000000",
+					},
 				},
 				map[string]interface{}{
 					"id":            "2",
@@ -349,7 +354,8 @@ func TestFetchLiquidityPools(t *testing.T) {
 
 	want0 := Pool{
 		ID: "1", Base: "ubze", Quote: "uvdl", LPDenom: "amm/1", Creator: "bze1creator",
-		Fee: "0.003000000000000000", ReserveBase: "1000000", ReserveQuote: "2000000", Stable: false,
+		Fee: "0.003000000000000000", FeeProviders: "0.800000000000000000",
+		ReserveBase: "1000000", ReserveQuote: "2000000", Stable: false,
 	}
 	if pools[0] != want0 {
 		t.Errorf("pool[0] = %+v, want %+v", pools[0], want0)
