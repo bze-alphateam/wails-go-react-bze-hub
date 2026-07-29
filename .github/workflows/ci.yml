@@ -1,11 +1,16 @@
 name: CI
 
 # PR gate: run the Go + frontend test suites and the frontend build on every
-# pull request into an integration branch. The multi-platform release build
-# (see docs/08-build-distribution.md) is a separate, tag-triggered pipeline.
+# pull request (no base-branch filter — stacked PRs based on a sibling feature
+# branch must be tested too, and a later retarget to main-v2 emits only an
+# `edited` event, which would never trigger a filtered workflow). Pushes to
+# main-v2 re-run the suite post-merge to catch semantic conflicts between
+# individually-green PRs. The multi-platform release build (see
+# docs/08-build-distribution.md) is a separate, tag-triggered pipeline.
 on:
   pull_request:
-    branches: [main, main-v2, develop]
+  push:
+    branches: [main-v2]
   workflow_dispatch:
 
 # Cancel superseded runs for the same PR/branch.
