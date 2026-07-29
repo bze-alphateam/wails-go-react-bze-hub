@@ -9,13 +9,13 @@ import {
   Button,
   Badge,
   IconButton,
-  Center,
 } from "@chakra-ui/react";
 import { LuArrowLeft } from "react-icons/lu";
 import { tradebin } from "../../../../wailsjs/go/models";
 import { prettyAmount } from "../../../utils/amount";
 import { TokenLogo } from "../../TokenLogo";
 import { Orderbook } from "./Orderbook";
+import { PriceChart } from "./PriceChart";
 import { RecentTrades } from "./RecentTrades";
 import { OrderForm } from "./OrderForm";
 import { MyOrders } from "./MyOrders";
@@ -101,7 +101,7 @@ export function Terminal({ market, address, resolve, logo, onBack }: TerminalPro
         {/* Center column: chart (BHUB-29) over the order forms (BHUB-28). */}
         <GridItem>
           <VStack gap="4" align="stretch">
-            <SlotPlaceholder title="Price chart" subtitle="Arrives with BHUB-29." minH="240px" />
+            <PriceChart marketId={market.marketId} />
             <OrderForm
               marketId={market.marketId}
               base={market.base}
@@ -170,25 +170,3 @@ function TabButton({ label, active, onClick }: { label: string; active: boolean;
   );
 }
 
-function SlotPlaceholder({
-  title,
-  subtitle,
-  minH,
-}: {
-  title: string;
-  subtitle: string;
-  minH: string;
-}) {
-  return (
-    <Center borderWidth="1px" borderRadius="lg" borderStyle="dashed" minH={minH} p="4">
-      <VStack gap="1">
-        <Text fontWeight="semibold" color="fg.muted">
-          {title}
-        </Text>
-        <Text fontSize="sm" color="fg.muted">
-          {subtitle}
-        </Text>
-      </VStack>
-    </Center>
-  );
-}
