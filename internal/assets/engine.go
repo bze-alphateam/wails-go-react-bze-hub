@@ -33,6 +33,7 @@ type Engine struct {
 	prices   *priceStore
 	logos    *logoCache
 	priceURL string
+	cache    *resolveCache
 }
 
 // NewEngine builds an engine that is usable immediately: it loads the embedded
@@ -62,6 +63,7 @@ func NewEngine(rest RestClient, emit func(event string, data interface{})) (*Eng
 		prices:     newPriceStore(),
 		logos:      newLogoCache(client),
 		priceURL:   DefaultPriceURL,
+		cache:      newResolveCache(),
 	}, nil
 }
 
@@ -81,7 +83,7 @@ func (e *Engine) snapshot() *Registry {
 }
 
 func (e *Engine) newResolver() *resolver {
-	return &resolver{reg: e.snapshot(), rest: e.rest}
+	return &resolver{reg: e.snapshot(), rest: e.rest, cache: e.cache}
 }
 
 // Refresh fetches the remote snapshot once and, on success, persists it to the
@@ -312,63 +314,84 @@ type supplyEntry struct {
 	amount string
 }
 
+// fetchSupply returns the chain's total supply. Concurrent callers (parallel
+// AllAssets sweeps) share a single upstream request via singleflight; the same
+// applies to fetchPools and fetchBalances below.
 func (e *Engine) fetchSupply() ([]supplyEntry, error) {
-	resp, err := e.rest.RestGet("/cosmos/bank/v1beta1/supply?pagination.limit=1000")
+	v, err := e.cache.do("supply", func() (interface{}, error) {
+		resp, err := e.rest.RestGet("/cosmos/bank/v1beta1/supply?pagination.limit=1000")
+		if err != nil {
+			return nil, err
+		}
+		var out []supplyEntry
+		for _, s := range asSlice(resp["supply"]) {
+			m, ok := asMap(s)
+			if !ok {
+				continue
+			}
+			out = append(out, supplyEntry{denom: asString(m["denom"]), amount: asString(m["amount"])})
+		}
+		return out, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	var out []supplyEntry
-	for _, s := range asSlice(resp["supply"]) {
-		m, ok := asMap(s)
-		if !ok {
-			continue
-		}
-		out = append(out, supplyEntry{denom: asString(m["denom"]), amount: asString(m["amount"])})
-	}
-	return out, nil
+	return v.([]supplyEntry), nil
 }
 
 // fetchPools returns a map of lp_denom → pool for LP naming.
 func (e *Engine) fetchPools() (map[string]Pool, error) {
-	resp, err := e.rest.RestGet("/bze/tradebin/all_liquidity_pools?pagination.limit=1000")
+	v, err := e.cache.do("pools", func() (interface{}, error) {
+		resp, err := e.rest.RestGet("/bze/tradebin/all_liquidity_pools?pagination.limit=1000")
+		if err != nil {
+			return nil, err
+		}
+		out := map[string]Pool{}
+		for _, p := range asSlice(resp["list"]) {
+			m, ok := asMap(p)
+			if !ok {
+				continue
+			}
+			pool := Pool{
+				ID:           asString(m["id"]),
+				Base:         asString(m["base"]),
+				Quote:        asString(m["quote"]),
+				LPDenom:      asString(m["lp_denom"]),
+				ReserveBase:  asString(m["reserve_base"]),
+				ReserveQuote: asString(m["reserve_quote"]),
+			}
+			pool.Stable, _ = m["stable"].(bool)
+			if pool.LPDenom != "" {
+				out[pool.LPDenom] = pool
+			}
+		}
+		return out, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]Pool{}
-	for _, p := range asSlice(resp["list"]) {
-		m, ok := asMap(p)
-		if !ok {
-			continue
-		}
-		pool := Pool{
-			ID:           asString(m["id"]),
-			Base:         asString(m["base"]),
-			Quote:        asString(m["quote"]),
-			LPDenom:      asString(m["lp_denom"]),
-			ReserveBase:  asString(m["reserve_base"]),
-			ReserveQuote: asString(m["reserve_quote"]),
-		}
-		pool.Stable, _ = m["stable"].(bool)
-		if pool.LPDenom != "" {
-			out[pool.LPDenom] = pool
-		}
-	}
-	return out, nil
+	return v.(map[string]Pool), nil
 }
 
 // fetchBalances returns a map of denom → amount for an address.
 func (e *Engine) fetchBalances(address string) (map[string]string, error) {
-	resp, err := e.rest.RestGet("/cosmos/bank/v1beta1/balances/" + address + "?pagination.limit=1000")
+	v, err := e.cache.do("balances/"+address, func() (interface{}, error) {
+		resp, err := e.rest.RestGet("/cosmos/bank/v1beta1/balances/" + address + "?pagination.limit=1000")
+		if err != nil {
+			return nil, err
+		}
+		out := map[string]string{}
+		for _, b := range asSlice(resp["balances"]) {
+			m, ok := asMap(b)
+			if !ok {
+				continue
+			}
+			out[asString(m["denom"])] = asString(m["amount"])
+		}
+		return out, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]string{}
-	for _, b := range asSlice(resp["balances"]) {
-		m, ok := asMap(b)
-		if !ok {
-			continue
-		}
-		out[asString(m["denom"])] = asString(m["amount"])
-	}
-	return out, nil
+	return v.(map[string]string), nil
 }

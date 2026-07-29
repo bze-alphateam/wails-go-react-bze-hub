@@ -8,10 +8,13 @@ import (
 
 // resolver resolves denoms against a fixed registry snapshot and a REST client.
 // It is created per-resolution from the engine's current snapshot so the engine
-// can swap the snapshot without locking during (slow) REST calls.
+// can swap the snapshot without locking during (slow) REST calls. cache (the
+// engine's, shared across resolutions) memoizes the REST lookups; nil means
+// every lookup goes upstream.
 type resolver struct {
-	reg  *Registry
-	rest RestClient
+	reg   *Registry
+	rest  RestClient
+	cache *resolveCache
 }
 
 // resolve turns a denom into an Asset. The bool reports whether the asset was
