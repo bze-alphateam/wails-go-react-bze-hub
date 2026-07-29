@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, VStack, HStack, Text } from "@chakra-ui/react";
 import { SectionTabs } from "../SectionTabs";
 import { useSectionView } from "../../hooks/useSectionView";
-import { useAssets } from "../../hooks/useAssets";
+import { useSharedAssets } from "../../context/AssetsContext";
 import { tradebin } from "../../../wailsjs/go/models";
 import { SwapCard } from "./SwapCard";
 import { MarketList } from "./terminal/MarketList";
@@ -50,7 +50,7 @@ export function TradeSection({
         </HStack>
 
         {isAdvanced ? (
-          <AdvancedTrade address={address} proxyTarget={proxyTarget} />
+          <AdvancedTrade address={address} />
         ) : (
           <VStack gap="4" align="stretch">
             <OpenOrdersSummary address={address} onGoAdvanced={() => setView("advanced")} />
@@ -72,8 +72,8 @@ export function TradeSection({
  * terminal. The selected market is held here (Trade-section state) so the list
  * and terminal are one navigation. Assets are loaded once and shared with both.
  */
-function AdvancedTrade({ address, proxyTarget }: { address: string; proxyTarget: string }) {
-  const { resolve, logo } = useAssets(address, proxyTarget);
+function AdvancedTrade({ address }: { address: string }) {
+  const { resolve, logo } = useSharedAssets();
   const [selectedMarket, setSelectedMarket] = useState<tradebin.MarketWithStats | null>(null);
 
   if (selectedMarket) {

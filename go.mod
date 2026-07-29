@@ -3,6 +3,7 @@ module github.com/bze-alphateam/bze-hub
 go 1.25.0
 
 require (
+	cosmossdk.io/math v1.4.0
 	github.com/bze-alphateam/bze v0.0.0-20260325184716-914475d39311
 	github.com/cosmos/cosmos-sdk v0.50.15
 	github.com/cosmos/go-bip39 v1.0.0
@@ -11,6 +12,7 @@ require (
 	github.com/wailsapp/wails/v2 v2.12.0
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/crypto v0.49.0
+	golang.org/x/sync v0.20.0
 	google.golang.org/grpc v1.70.0
 )
 
@@ -21,7 +23,6 @@ require (
 	cosmossdk.io/depinject v1.1.0 // indirect
 	cosmossdk.io/errors v1.0.1 // indirect
 	cosmossdk.io/log v1.4.1 // indirect
-	cosmossdk.io/math v1.4.0 // indirect
 	cosmossdk.io/store v1.1.1 // indirect
 	cosmossdk.io/x/tx v0.13.7 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
@@ -158,7 +159,6 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
 	golang.org/x/net v0.51.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/term v0.41.0 // indirect
 	golang.org/x/text v0.35.0 // indirect

@@ -11,7 +11,7 @@ import {
   Spinner,
 } from "@chakra-ui/react";
 import { LuArrowDownUp, LuSettings, LuInfo } from "react-icons/lu";
-import { useAssets } from "../../hooks/useAssets";
+import { useSharedAssets } from "../../context/AssetsContext";
 import { useLiquidityPools } from "../../hooks/useLiquidityPools";
 import { useSwapSlippage } from "../../hooks/useSwapSlippage";
 import { useSwapQuote } from "../../hooks/useSwapQuote";
@@ -47,7 +47,7 @@ interface SwapCardProps {
  * high price impact requires an explicit acknowledgement.
  */
 export function SwapCard({ address, proxyTarget, preselectDenom, onPreselectConsumed }: SwapCardProps) {
-  const { assets, isLoading, logo, resolve } = useAssets(address, proxyTarget);
+  const { assets, isLoading, logo, resolve } = useSharedAssets();
   const { pools } = useLiquidityPools(proxyTarget);
   const { slippage, setSlippage } = useSwapSlippage();
   const { swap, isSubmitting } = useSwapTx(address);

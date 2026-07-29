@@ -4,9 +4,9 @@ import {
   Center, Spinner,
 } from "@chakra-ui/react";
 import { LuRefreshCw, LuQrCode, LuSend } from "react-icons/lu";
-import { useAssets } from "../../hooks/useAssets";
+import { useSharedAssets } from "../../context/AssetsContext";
+import { useSharedStaking } from "../../context/StakingContext";
 import { useChainEvents } from "../../hooks/useChainEvents";
-import { useStakingData } from "../../hooks/useStakingData";
 import { PortfolioRow } from "./PortfolioRow";
 import { ReceiveModal } from "./ReceiveModal";
 import { AssetDetail } from "./AssetDetail";
@@ -16,7 +16,6 @@ import { NATIVE_DENOM, stakedUbzeFromOverview } from "./assetDetailHelpers";
 
 interface PortfolioSectionProps {
   address: string;
-  proxyTarget: string;
   /** Deep-link an asset into the Trade section's swap input (M2). */
   onTrade?: (denom: string) => void;
 }
@@ -28,8 +27,8 @@ interface PortfolioSectionProps {
  * `useAssets`; a tx touching the active address refreshes the list within a
  * block (coalesced) via `useChainEvents`.
  */
-export function PortfolioSection({ address, proxyTarget, onTrade }: PortfolioSectionProps) {
-  const { assets, isLoading, error, reload, price, logo, usdValue } = useAssets(address, proxyTarget);
+export function PortfolioSection({ address, onTrade }: PortfolioSectionProps) {
+  const { assets, isLoading, error, reload, price, logo, usdValue } = useSharedAssets();
   const [search, setSearch] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
@@ -47,15 +46,14 @@ export function PortfolioSection({ address, proxyTarget, onTrade }: PortfolioSec
   useChainEvents(address, { onMatchingTx: () => reload() });
 
   // The selected asset (kept in sync as the list refreshes) and, only when the
-  // native token's detail is open, its staked amount. Passing an empty address to
-  // useStakingData keeps it idle for every other asset, so we never fetch the
-  // staking overview unless a BZE detail is actually being viewed.
+  // native token's detail is open, its staked amount. Staking data comes from
+  // the app-level StakingProvider (one shared poll loop with the Earn page).
   const selected = useMemo(
     () => assets.find((a) => a.denom === selectedDenom) ?? null,
     [assets, selectedDenom]
   );
   const needsStaking = selectedDenom === NATIVE_DENOM;
-  const { data: staking } = useStakingData(needsStaking ? address : "", proxyTarget);
+  const { data: staking } = useSharedStaking();
   const stakedUAmount = needsStaking ? stakedUbzeFromOverview(staking) : null;
 
   const total = useMemo(() => totalUsdValue(assets, usdValue), [assets, usdValue]);

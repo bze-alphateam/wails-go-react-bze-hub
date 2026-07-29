@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Box, Text, Center, Spinner, VStack, HStack, Button } from "@chakra-ui/react";
 import { SectionTabs } from "../SectionTabs";
 import { useSectionView } from "../../hooks/useSectionView";
-import { useStakingData } from "../../hooks/useStakingData";
+import { useSharedStaking } from "../../context/StakingContext";
 import { useStakingTx } from "../../hooks/useStakingTx";
 import {
   calcNativeStakingApr,
@@ -17,11 +17,10 @@ import type { Validator } from "../../utils/stakingTypes";
 
 interface StakingPageProps {
   address: string;
-  proxyTarget: string;
 }
 
-export function StakingPage({ address, proxyTarget }: StakingPageProps) {
-  const { data, isLoading, error, reload } = useStakingData(address, proxyTarget);
+export function StakingPage({ address }: StakingPageProps) {
+  const { data, isLoading, error, reload } = useSharedStaking();
   const { claimAll, isSubmitting } = useStakingTx(address);
 
   // Earn's Simple/Advanced views, persisted per device via the app-wide

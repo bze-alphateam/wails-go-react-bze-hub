@@ -23,8 +23,14 @@ type counterparty struct {
 	channelID string
 }
 
-// fetchTrace resolves an IBC voucher hash to its denom trace.
+// fetchTrace resolves an IBC voucher hash to its denom trace. Traces are
+// immutable, so successful lookups are served from the engine cache.
 func (r *resolver) fetchTrace(hash string) (denomTrace, bool) {
+	if r.cache != nil {
+		if t, ok := r.cache.trace(hash); ok {
+			return t, true
+		}
+	}
 	resp, err := r.rest.RestGet("/ibc/apps/transfer/v1/denom_traces/" + hash)
 	if err != nil {
 		return denomTrace{}, false
@@ -40,11 +46,20 @@ func (r *resolver) fetchTrace(hash string) (denomTrace, bool) {
 	if trace.BaseDenom == "" {
 		return denomTrace{}, false
 	}
+	if r.cache != nil {
+		r.cache.setTrace(hash, trace)
+	}
 	return trace, true
 }
 
 // fetchMetadata reads a factory denom's on-chain bank metadata, if any.
+// Successful lookups are cached with a TTL (metadata can be updated on chain).
 func (r *resolver) fetchMetadata(denom string) (denomMetadata, bool) {
+	if r.cache != nil {
+		if m, ok := r.cache.meta(denom); ok {
+			return m, true
+		}
+	}
 	resp, err := r.rest.RestGet("/cosmos/bank/v1beta1/denoms_metadata/" + denom)
 	if err != nil {
 		return denomMetadata{}, false
@@ -69,13 +84,23 @@ func (r *resolver) fetchMetadata(denom string) (denomMetadata, bool) {
 			Exponent: asInt(um["exponent"]),
 		})
 	}
+	if r.cache != nil {
+		r.cache.setMeta(denom, meta)
+	}
 	return meta, true
 }
 
 // fetchCounterparty walks channel → connection → client to find the origin chain
 // id and counterparty channel of an IBC channel. Best-effort: any failure yields
-// ok=false and resolution falls back to registry-derived chain info.
+// ok=false and resolution falls back to registry-derived chain info. The
+// channel → chain mapping is immutable, so successes are served from the cache.
 func (r *resolver) fetchCounterparty(channelID, portID string) (counterparty, bool) {
+	cacheKey := channelID + "/" + portID
+	if r.cache != nil {
+		if cp, ok := r.cache.counterparty(cacheKey); ok {
+			return cp, true
+		}
+	}
 	chResp, err := r.rest.RestGet(fmt.Sprintf("/ibc/core/channel/v1/channels/%s/ports/%s", channelID, portID))
 	if err != nil {
 		return counterparty{}, false
@@ -117,6 +142,9 @@ func (r *resolver) fetchCounterparty(channelID, portID string) (counterparty, bo
 	cp.chainID = clientChainID(csResp)
 	if cp.chainID == "" {
 		return counterparty{}, false
+	}
+	if r.cache != nil {
+		r.cache.setCounterparty(cacheKey, cp)
 	}
 	return cp, true
 }

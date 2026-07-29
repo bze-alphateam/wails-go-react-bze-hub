@@ -9,7 +9,7 @@ import {
   LuInfo,
 } from "react-icons/lu";
 import { GetAllBalances, OpenURL } from "../../../wailsjs/go/main/App";
-import { useAssets } from "../../hooks/useAssets";
+import { useSharedAssets } from "../../context/AssetsContext";
 import { useChainEvents } from "../../hooks/useChainEvents";
 import { TokenLogo } from "../TokenLogo";
 import { prettyAmount, uAmountToBigNumberAmount, toBigNumber } from "../../utils/amount";
@@ -132,7 +132,7 @@ interface WalletBalance {
 }
 
 export function BalancePanel({ address, label, proxyTarget, onNavigate, onShowAbout }: Props) {
-  const { assets, isLoading, reload, price, logo, usdValue } = useAssets(address, proxyTarget);
+  const { assets, isLoading, reload, price, logo, usdValue } = useSharedAssets();
 
   // Cross-wallet BZE totals still come from GetAllBalances (useAssets only covers
   // the active address). Prices/formatting go through the ported utils.
