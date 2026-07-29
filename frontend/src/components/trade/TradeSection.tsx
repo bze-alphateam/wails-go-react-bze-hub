@@ -7,6 +7,7 @@ import { tradebin } from "../../../wailsjs/go/models";
 import { SwapCard } from "./SwapCard";
 import { MarketList } from "./terminal/MarketList";
 import { Terminal } from "./terminal/Terminal";
+import { OpenOrdersSummary } from "./terminal/OpenOrdersSummary";
 
 interface TradeSectionProps {
   address: string;
@@ -51,12 +52,15 @@ export function TradeSection({
         {isAdvanced ? (
           <AdvancedTrade address={address} proxyTarget={proxyTarget} />
         ) : (
-          <SwapCard
-            address={address}
-            proxyTarget={proxyTarget}
-            preselectDenom={preselectDenom}
-            onPreselectConsumed={onPreselectConsumed}
-          />
+          <VStack gap="4" align="stretch">
+            <OpenOrdersSummary address={address} onGoAdvanced={() => setView("advanced")} />
+            <SwapCard
+              address={address}
+              proxyTarget={proxyTarget}
+              preselectDenom={preselectDenom}
+              onPreselectConsumed={onPreselectConsumed}
+            />
+          </VStack>
         )}
       </VStack>
     </Box>

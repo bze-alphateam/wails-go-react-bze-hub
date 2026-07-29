@@ -17,6 +17,9 @@ import { prettyAmount } from "../../../utils/amount";
 import { TokenLogo } from "../../TokenLogo";
 import { Orderbook } from "./Orderbook";
 import { RecentTrades } from "./RecentTrades";
+import { OrderForm } from "./OrderForm";
+import { MyOrders } from "./MyOrders";
+import { MyTradeHistory } from "./MyTradeHistory";
 import type { ResolveAsset } from "./marketHelpers";
 
 type TerminalTab = "trades" | "myOrders" | "myHistory";
@@ -99,19 +102,14 @@ export function Terminal({ market, address, resolve, logo, onBack }: TerminalPro
         <GridItem>
           <VStack gap="4" align="stretch">
             <SlotPlaceholder title="Price chart" subtitle="Arrives with BHUB-29." minH="240px" />
-            <Box borderWidth="1px" borderRadius="lg" p="4">
-              <Text fontWeight="semibold" mb="1">
-                Buy / sell
-              </Text>
-              <Text fontSize="sm" color="fg.muted">
-                Order forms arrive with BHUB-28.
-              </Text>
-              <Text fontSize="sm" color="fg.muted" mt="2" data-testid="selected-price">
-                {selectedPrice
-                  ? `Selected price: ${selectedPrice} ${quoteSym}`
-                  : "Click an orderbook price to prefill."}
-              </Text>
-            </Box>
+            <OrderForm
+              marketId={market.marketId}
+              base={market.base}
+              quote={market.quote}
+              address={address}
+              resolve={resolve}
+              selectedPrice={selectedPrice}
+            />
           </VStack>
         </GridItem>
 
@@ -122,20 +120,31 @@ export function Terminal({ market, address, resolve, logo, onBack }: TerminalPro
             <TabButton label="My Orders" active={tab === "myOrders"} onClick={() => setTab("myOrders")} />
             <TabButton label="My History" active={tab === "myHistory"} onClick={() => setTab("myHistory")} />
           </HStack>
-          {tab === "trades" ? (
+          {tab === "trades" && (
             <RecentTrades
               marketId={market.marketId}
               base={market.base}
               quote={market.quote}
               resolve={resolve}
             />
-          ) : (
-            <Center py="8" px="4" textAlign="center">
-              <Text fontSize="sm" color="fg.muted">
-                {tab === "myOrders" ? "My open orders" : "My trade history"} arrive with BHUB-28.
-                {!address && " Connect a wallet to trade."}
-              </Text>
-            </Center>
+          )}
+          {tab === "myOrders" && (
+            <MyOrders
+              marketId={market.marketId}
+              base={market.base}
+              quote={market.quote}
+              address={address}
+              resolve={resolve}
+            />
+          )}
+          {tab === "myHistory" && (
+            <MyTradeHistory
+              marketId={market.marketId}
+              base={market.base}
+              quote={market.quote}
+              address={address}
+              resolve={resolve}
+            />
           )}
         </GridItem>
       </Grid>

@@ -65,6 +65,24 @@ func (a *App) GetMyOrders(marketId, address string) ([]tradebin.Order, error) {
 	return orders, nil
 }
 
+// GetMyOpenOrdersCount returns how many resting orders the caller has across all
+// markets — a cheap reference-count query for the Simple view's open-orders
+// summary. An empty address falls back to the active account.
+func (a *App) GetMyOpenOrdersCount(address string) (int, error) {
+	if a.chainClient == nil {
+		return 0, fmt.Errorf("chain client not initialized")
+	}
+	if address == "" {
+		address = a.appState.GetActiveAddress()
+	}
+	n, err := tradebin.FetchMyOpenOrderCount(a.chainClient, address)
+	if err != nil {
+		logging.Error("tradebin", "GetMyOpenOrdersCount: %v", err)
+		return 0, fmt.Errorf("get my open orders count: %w", err)
+	}
+	return n, nil
+}
+
 // GetMarketParams returns the tradebin fee parameters for form display/validation.
 func (a *App) GetMarketParams() (tradebin.MarketParams, error) {
 	if a.chainClient == nil {

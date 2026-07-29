@@ -147,6 +147,26 @@ func TestFetchMyOrdersEmpty(t *testing.T) {
 	}
 }
 
+func TestFetchMyOpenOrderCount(t *testing.T) {
+	rest := &mockRest{handler: func(path string) (map[string]interface{}, error) {
+		if strings.Contains(path, "market=") {
+			t.Errorf("count query must not filter by market: %q", path)
+		}
+		return jsonMap(t, `{"list":[
+			{"id":"1","market_id":"ubze/uusdc","order_type":"buy"},
+			{"id":"2","market_id":"uatom/ubze","order_type":"sell"},
+			{"id":"3","market_id":"ubze/uusdc","order_type":"sell"}
+		]}`), nil
+	}}
+	n, err := FetchMyOpenOrderCount(rest, "bze1aaa")
+	if err != nil {
+		t.Fatalf("FetchMyOpenOrderCount: %v", err)
+	}
+	if n != 3 {
+		t.Fatalf("count = %d, want 3", n)
+	}
+}
+
 func TestFetchMarketParams(t *testing.T) {
 	// camelCase keys (as the proto v2 Params fields are written)
 	rest := &mockRest{handler: func(path string) (map[string]interface{}, error) {

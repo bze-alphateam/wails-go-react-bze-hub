@@ -205,6 +205,21 @@ func FetchMyOrders(rest RestClient, marketId, address string) ([]Order, error) {
 	return orders, nil
 }
 
+// FetchMyOpenOrderCount returns how many resting orders an address has across
+// ALL order-book markets. It is cheap — a single query of the user's order
+// references with no per-order hydration. Passing no market to
+// user_market_orders makes the chain return every market's references
+// (keeper: getUserOrderByAddressStore), so the Simple view can surface "N open
+// orders" without scanning markets one by one.
+func FetchMyOpenOrderCount(rest RestClient, address string) (int, error) {
+	path := fmt.Sprintf("%s%s?pagination.limit=%d", userMarketOrdersPath, url.PathEscape(address), userOrdersLimit)
+	resp, err := rest.RestGet(path)
+	if err != nil {
+		return 0, fmt.Errorf("query user open orders: %w", err)
+	}
+	return len(asSlice(resp["list"])), nil
+}
+
 func fetchMarketOrder(rest RestClient, marketId, orderType, orderID string) (*Order, error) {
 	path := fmt.Sprintf("%s?market=%s&order_type=%s&order_id=%s",
 		marketOrderPath, url.QueryEscape(marketId), orderType, url.QueryEscape(orderID))
