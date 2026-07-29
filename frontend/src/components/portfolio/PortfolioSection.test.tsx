@@ -4,23 +4,23 @@ import BigNumber from "bignumber.js";
 import { renderWithChakra } from "../../test/render";
 import type { AssetBalance } from "../../hooks/useAssets";
 
-// Mock the data hook so the section renders off a controlled asset set, and the
-// event hook so we can capture and fire its onMatchingTx handler.
+// Mock the shared assets context so the section renders off a controlled asset
+// set, and the event hook so we can capture and fire its onMatchingTx handler.
 const useAssetsMock = vi.fn();
 const chainHandlers: { onMatchingTx?: (h: string) => void } = {};
 
-vi.mock("../../hooks/useAssets", () => ({
-  useAssets: (...args: unknown[]) => useAssetsMock(...args),
+vi.mock("../../context/AssetsContext", () => ({
+  useSharedAssets: (...args: unknown[]) => useAssetsMock(...args),
 }));
 vi.mock("../../hooks/useChainEvents", () => ({
   useChainEvents: (_address: string, handlers: { onMatchingTx?: (h: string) => void }) => {
     chainHandlers.onMatchingTx = handlers.onMatchingTx;
   },
 }));
-// Stub the staking hook — the detail view only fetches it for the native token,
-// and these tests don't exercise the staked breakdown (AssetDetail owns that).
-vi.mock("../../hooks/useStakingData", () => ({
-  useStakingData: () => ({ data: null, isLoading: false, error: null, reload: vi.fn() }),
+// Stub the shared staking context — the detail view only reads it for the native
+// token, and these tests don't exercise the staked breakdown (AssetDetail owns that).
+vi.mock("../../context/StakingContext", () => ({
+  useSharedStaking: () => ({ data: null, isLoading: false, error: null, reload: vi.fn() }),
 }));
 
 import { PortfolioSection } from "./PortfolioSection";
@@ -80,20 +80,20 @@ beforeEach(() => {
 describe("PortfolioSection", () => {
   it("prompts to connect when there is no active address", () => {
     mockAssets([]);
-    renderWithChakra(<PortfolioSection address="" proxyTarget="public" />);
+    renderWithChakra(<PortfolioSection address="" />);
     expect(screen.getByText(/connect a wallet/i)).toBeInTheDocument();
   });
 
   it("shows the total portfolio value as the sum of per-asset USD values", () => {
     mockAssets(held);
-    renderWithChakra(<PortfolioSection address="bze1addr" proxyTarget="public" />);
+    renderWithChakra(<PortfolioSection address="bze1addr" />);
     // 0.05 (VDL) + 0.0005 (BZE) = 0.0505
     expect(screen.getByText("$0.0505")).toBeInTheDocument();
   });
 
   it("lists holdings only by default, sorted by USD value desc", () => {
     mockAssets(held);
-    renderWithChakra(<PortfolioSection address="bze1addr" proxyTarget="public" />);
+    renderWithChakra(<PortfolioSection address="bze1addr" />);
 
     // Zero-balance ABC is hidden; BZE and VDL shown.
     expect(screen.queryByText("ABC")).not.toBeInTheDocument();
@@ -107,7 +107,7 @@ describe("PortfolioSection", () => {
       asset({ denom: "uvdl", symbol: "VDL", name: "Vidulum", type: "factory", verified: false, amount: "5000000" }), // 5 VDL → $0.05
       asset({ denom: "unop", symbol: "NOP", name: "No Price", type: "ibc", verified: false, amount: "3000000", price: "" }), // no price
     ]);
-    renderWithChakra(<PortfolioSection address="bze1addr" proxyTarget="public" />);
+    renderWithChakra(<PortfolioSection address="bze1addr" />);
 
     expect(screen.getByText("Native")).toBeInTheDocument();
     expect(screen.getByText("IBC")).toBeInTheDocument();
@@ -123,7 +123,7 @@ describe("PortfolioSection", () => {
 
   it("filters by the search box", () => {
     mockAssets(held);
-    renderWithChakra(<PortfolioSection address="bze1addr" proxyTarget="public" />);
+    renderWithChakra(<PortfolioSection address="bze1addr" />);
 
     fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "vidul" } });
     expect(screen.getByText("VDL")).toBeInTheDocument();
@@ -132,7 +132,7 @@ describe("PortfolioSection", () => {
 
   it("reveals zero-balance known assets via the Show all toggle", () => {
     mockAssets(held);
-    renderWithChakra(<PortfolioSection address="bze1addr" proxyTarget="public" />);
+    renderWithChakra(<PortfolioSection address="bze1addr" />);
 
     expect(screen.queryByText("ABC")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /show all/i }));
@@ -141,7 +141,7 @@ describe("PortfolioSection", () => {
 
   it("opens the asset detail when a row is selected", () => {
     mockAssets(held);
-    renderWithChakra(<PortfolioSection address="bze1addr" proxyTarget="public" />);
+    renderWithChakra(<PortfolioSection address="bze1addr" />);
 
     // The detail's copyable denom isn't shown until a row is clicked.
     expect(screen.queryByText("uvdl")).not.toBeInTheDocument();
@@ -154,7 +154,7 @@ describe("PortfolioSection", () => {
 
   it("refreshes on a matching chain tx without manual action", () => {
     mockAssets(held);
-    renderWithChakra(<PortfolioSection address="bze1addr" proxyTarget="public" />);
+    renderWithChakra(<PortfolioSection address="bze1addr" />);
 
     expect(chainHandlers.onMatchingTx).toBeTypeOf("function");
     chainHandlers.onMatchingTx?.("12345");

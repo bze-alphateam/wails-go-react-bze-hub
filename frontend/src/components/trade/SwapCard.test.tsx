@@ -13,8 +13,8 @@ const swapQuote = vi.fn<[], amm.SwapQuote | null>(() => null);
 const swapFn = vi.fn().mockResolvedValue(true);
 let blockHandler: ((h: string) => void) | undefined;
 
-vi.mock("../../hooks/useAssets", () => ({
-  useAssets: (...args: unknown[]) => useAssetsMock(...args),
+vi.mock("../../context/AssetsContext", () => ({
+  useSharedAssets: (...args: unknown[]) => useAssetsMock(...args),
 }));
 vi.mock("../../hooks/useLiquidityPools", () => ({
   useLiquidityPools: (...args: unknown[]) => useLiquidityPoolsMock(...args),

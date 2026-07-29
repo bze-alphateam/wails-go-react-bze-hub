@@ -4,7 +4,7 @@ import { EventsOn } from "../../wailsjs/runtime/runtime";
 import { useChainEvents } from "./useChainEvents";
 import type { StakingOverview } from "../utils/stakingTypes";
 
-interface UseStakingDataResult {
+export interface UseStakingDataResult {
   data: StakingOverview | null;
   isLoading: boolean;
   error: string | null;

@@ -12,6 +12,8 @@ import { StakingPage } from "./components/staking/StakingPage";
 import { PortfolioSection } from "./components/portfolio/PortfolioSection";
 import { TradeSection } from "./components/trade/TradeSection";
 import { PLACEHOLDER_SECTIONS } from "./sections";
+import { AssetsProvider } from "./context/AssetsContext";
+import { StakingProvider } from "./context/StakingContext";
 import type { SectionId } from "./theme";
 
 type AppView = "loading" | "wizard" | "main" | "shutdown";
@@ -132,6 +134,8 @@ function App() {
   }
 
   return (
+    <AssetsProvider address={activeAddress} proxyTarget={proxyTarget}>
+    <StakingProvider address={activeAddress} proxyTarget={proxyTarget}>
     <Flex direction="column" h="100vh">
       <TabBar
         activeTab={activeTab}
@@ -159,7 +163,6 @@ function App() {
         <SectionPane active={activeTab === "portfolio"}>
           <PortfolioSection
             address={activeAddress}
-            proxyTarget={proxyTarget}
             onTrade={handleTradeAsset}
           />
         </SectionPane>
@@ -176,7 +179,7 @@ function App() {
 
         {/* Earn — native staking, kept mounted to preserve its polling. */}
         <SectionPane active={activeTab === "earn"}>
-          <StakingPage address={activeAddress} proxyTarget={proxyTarget} />
+          <StakingPage address={activeAddress} />
         </SectionPane>
 
         {/* Placeholder sections — rendered only when active. */}
@@ -198,6 +201,8 @@ function App() {
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </Flex>
+    </StakingProvider>
+    </AssetsProvider>
   );
 }
 
