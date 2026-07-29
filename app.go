@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bze-alphateam/bze-hub/internal/chain"
@@ -68,6 +69,11 @@ type App struct {
 	// Price cache
 	cachedBzePrice  float64
 	cachedPriceTime time.Time
+
+	// Denom metadata cache (bank denoms_metadata — factory token decimals/symbols)
+	cachedDenomMeta     []map[string]interface{}
+	cachedDenomMetaTime time.Time
+	denomMetaMu         sync.Mutex
 
 	// Force re-init cooldown
 	lastForceReInit time.Time
@@ -1024,6 +1030,57 @@ func (a *App) GetAllBalances() ([]map[string]interface{}, error) {
 		})
 	}
 	return results, nil
+}
+
+// GetDenomsMetadata returns the chain's bank denom metadata — the on-chain source
+// of truth for a token's decimals, symbol, and display name. Factory tokens (and
+// any token whose issuer set metadata) appear here; native ubze and most IBC denoms
+// do not (the frontend supplies those from a static registry / heuristic).
+//
+// Each entry is the raw Cosmos `Metadata` shape:
+//
+//	{ base, display, name, symbol, description, uri, denom_units: [{denom, exponent, aliases}] }
+//
+// Decimals = the exponent of the denom_unit whose denom == display. Results are
+// cached for 10 minutes (metadata changes rarely) and the last good value is served
+// if a refresh fails, so the UI never regresses to "unknown decimals" on a blip.
+func (a *App) GetDenomsMetadata() ([]map[string]interface{}, error) {
+	a.denomMetaMu.Lock()
+	defer a.denomMetaMu.Unlock()
+
+	if a.cachedDenomMeta != nil && time.Since(a.cachedDenomMetaTime) < 10*time.Minute {
+		return a.cachedDenomMeta, nil
+	}
+
+	proxyREST := fmt.Sprintf("http://localhost:%d", a.settings.ProxyRESTPort)
+	url := fmt.Sprintf("%s/cosmos/bank/v1beta1/denoms_metadata?pagination.limit=1000", proxyREST)
+
+	resp, err := a.httpGet(url)
+	if err != nil {
+		if a.cachedDenomMeta != nil {
+			return a.cachedDenomMeta, nil // serve stale on transient failure
+		}
+		return nil, fmt.Errorf("denom metadata query failed: %w", err)
+	}
+
+	raw, ok := resp["metadatas"].([]interface{})
+	if !ok {
+		if a.cachedDenomMeta != nil {
+			return a.cachedDenomMeta, nil
+		}
+		return []map[string]interface{}{}, nil
+	}
+
+	out := make([]map[string]interface{}, 0, len(raw))
+	for _, m := range raw {
+		if mm, ok := m.(map[string]interface{}); ok {
+			out = append(out, mm)
+		}
+	}
+
+	a.cachedDenomMeta = out
+	a.cachedDenomMetaTime = time.Now()
+	return out, nil
 }
 
 // GetArticles fetches the latest CoinTrunk articles via the local proxy,

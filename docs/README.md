@@ -129,6 +129,7 @@ Frontend tests run on **Vitest** (`frontend/package.json` → `test`: `vitest ru
 | [08-build-distribution.md](08-build-distribution.md) | Cross-platform builds, CI/CD, packaging |
 | [09-staking.md](09-staking.md) | Staking page: compact/advanced views, validator-pick rules, stake-health |
 | [10-notifications.md](10-notifications.md) | App-wide notification system: `notify` API, toast types, position, extending |
+| [11-assets.md](11-assets.md) | Token display & decimals: layered asset registry, `useAssets`, `<AssetAmount>`, bank metadata |
 
 _Native dApp UI design docs: TBD (to replace the removed iframe/bridge `04-ui-shell.md`)._
 

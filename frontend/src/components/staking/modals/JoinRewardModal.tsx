@@ -9,8 +9,14 @@ import {
   Portal,
   Dialog,
 } from "@chakra-ui/react";
-import { humanToUbze, formatAmount, ubzeToHuman } from "../../../utils/stakingHelpers";
 import { useStakingTx } from "../../../hooks/useStakingTx";
+import {
+  useAssets,
+  AssetAmount,
+  humanToUAmount,
+  uAmountToHuman,
+  formatAmount,
+} from "../../../assets";
 import type { StakingReward } from "../../../utils/stakingTypes";
 
 interface JoinRewardModalProps {
@@ -31,10 +37,12 @@ export function JoinRewardModal({
   const [amount, setAmount] = useState("");
   const [error, setError] = useState("");
   const { joinRewardStaking, isSubmitting } = useStakingTx(address);
+  const { symbol, decimals } = useAssets();
 
   const stakingDenom = reward.staking_denom;
-  const prizeDenom = reward.prize_denom === "ubze" ? "BZE" : reward.prize_denom;
-  const stakingDenomDisplay = stakingDenom === "ubze" ? "BZE" : stakingDenom;
+  const prizeDenom = symbol(reward.prize_denom);
+  const stakingDenomDisplay = symbol(stakingDenom);
+  const stakeDecimals = decimals(stakingDenom);
   const minStake = reward.min_stake;
   const lockPeriod = reward.lock;
 
@@ -52,9 +60,11 @@ export function JoinRewardModal({
       return;
     }
 
-    const stakeAmount = humanToUbze(amount);
+    const stakeAmount = humanToUAmount(amount, stakeDecimals);
     if (BigInt(stakeAmount) < BigInt(minStake || "0")) {
-      setError(`Minimum stake is ${formatAmount(ubzeToHuman(minStake))} ${stakingDenomDisplay}`);
+      setError(
+        `Minimum stake is ${formatAmount(uAmountToHuman(minStake, stakeDecimals))} ${stakingDenomDisplay}`
+      );
       return;
     }
 
@@ -105,7 +115,12 @@ export function JoinRewardModal({
                     </HStack>
                     <HStack justify="space-between">
                       <Text fontSize="xs" color="fg.muted">Total Staked</Text>
-                      <Text fontSize="xs">{formatAmount(ubzeToHuman(reward.staked_amount))}</Text>
+                      <AssetAmount
+                        fontSize="xs"
+                        amount={reward.staked_amount}
+                        denom={stakingDenom}
+                        maxDecimals={2}
+                      />
                     </HStack>
                     {lockPeriod > 0 && (
                       <HStack justify="space-between">
@@ -116,7 +131,11 @@ export function JoinRewardModal({
                     {BigInt(minStake || "0") > BigInt(0) && (
                       <HStack justify="space-between">
                         <Text fontSize="xs" color="fg.muted">Min Stake</Text>
-                        <Text fontSize="xs">{formatAmount(ubzeToHuman(minStake))} {stakingDenomDisplay}</Text>
+                        <AssetAmount
+                          fontSize="xs"
+                          amount={minStake}
+                          denom={stakingDenom}
+                        />
                       </HStack>
                     )}
                   </VStack>

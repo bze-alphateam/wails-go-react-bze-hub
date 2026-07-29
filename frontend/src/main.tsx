@@ -5,6 +5,7 @@ import { system } from "./theme";
 import "./style.css";
 import App from "./App";
 import { NotificationToaster } from "./notifications";
+import { AssetsProvider } from "./assets";
 
 const container = document.getElementById("root");
 const root = createRoot(container!);
@@ -12,8 +13,10 @@ const root = createRoot(container!);
 root.render(
   <React.StrictMode>
     <ChakraProvider value={system}>
-      <App />
-      <NotificationToaster />
+      <AssetsProvider>
+        <App />
+        <NotificationToaster />
+      </AssetsProvider>
     </ChakraProvider>
   </React.StrictMode>
 );

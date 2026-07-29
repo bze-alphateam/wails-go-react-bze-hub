@@ -22,12 +22,12 @@ import {
 import {
   formatAmount,
   ubzeToHuman,
-  denomLabel,
   calcRewardsStakingPending,
   calcRewardsStakingApr,
   isRewardActive,
   sumDecCoins,
 } from "../../utils/stakingHelpers";
+import { AssetAmount, useAssets } from "../../assets";
 import {
   scoreValidators,
   selectTopValidators,
@@ -50,13 +50,15 @@ interface StakingCompactProps {
 interface PendingItem {
   key: string;
   label: string;
-  amountHuman: string;
+  /** Claimable amount in base (micro) units of `denom`. */
+  amount: string;
   denom: string;
   claim: () => Promise<boolean>;
 }
 
 export function StakingCompact({ data, apr, address, onReload }: StakingCompactProps) {
   const [showStakeModal, setShowStakeModal] = useState(false);
+  const { symbol } = useAssets();
   const {
     autoStake,
     claimNativeRewards,
@@ -129,7 +131,7 @@ export function StakingCompact({ data, apr, address, onReload }: StakingCompactP
       items.push({
         key: "native",
         label: "Staking rewards",
-        amountHuman: formatAmount(ubzeToHuman(nativeRewardsUbze), 4),
+        amount: nativeRewardsUbze,
         denom: "ubze",
         claim: () => claimNativeRewards(rewardValidators),
       });
@@ -147,8 +149,8 @@ export function StakingCompact({ data, apr, address, onReload }: StakingCompactP
       if (BigInt(pending) <= 0n) continue;
       items.push({
         key: `r-${p.reward_id}`,
-        label: `Earn ${denomLabel(r.prize_denom)}`,
-        amountHuman: formatAmount(ubzeToHuman(pending), 4),
+        label: `Earn ${symbol(r.prize_denom)}`,
+        amount: pending,
         denom: r.prize_denom,
         claim: () => claimRewardStaking(p.reward_id),
       });
@@ -162,6 +164,7 @@ export function StakingCompact({ data, apr, address, onReload }: StakingCompactP
     stakingRewards,
     claimNativeRewards,
     claimRewardStaking,
+    symbol,
   ]);
 
   // --- earn-more (reward programs) ----------------------------------------
@@ -316,9 +319,13 @@ export function StakingCompact({ data, apr, address, onReload }: StakingCompactP
                   <Text fontSize="sm" fontWeight="medium">
                     {item.label}
                   </Text>
-                  <Text fontSize="sm" color="teal.500">
-                    {item.amountHuman} {denomLabel(item.denom)}
-                  </Text>
+                  <AssetAmount
+                    amount={item.amount}
+                    denom={item.denom}
+                    maxDecimals={4}
+                    fontSize="sm"
+                    color="teal.500"
+                  />
                 </VStack>
                 <Button
                   size="xs"
@@ -435,8 +442,9 @@ function EarnRow({
   onReload: () => void;
 }) {
   const [showJoinModal, setShowJoinModal] = useState(false);
-  const stakeLabel = denomLabel(reward.staking_denom);
-  const prizeLabel = denomLabel(reward.prize_denom);
+  const { symbol } = useAssets();
+  const stakeLabel = symbol(reward.staking_denom);
+  const prizeLabel = symbol(reward.prize_denom);
   const apr = calcRewardsStakingApr(
     reward.prize_amount,
     reward.duration,
@@ -461,7 +469,12 @@ function EarnRow({
             APR: <Text as="span" color="green.500">{apr}%</Text>
           </Text>
           <Text fontSize="xs" color="fg.muted">
-            Pool: {formatAmount(ubzeToHuman(reward.staked_amount))} {stakeLabel}
+            Pool:{" "}
+            <AssetAmount
+              amount={reward.staked_amount}
+              denom={reward.staking_denom}
+              maxDecimals={2}
+            />
           </Text>
         </HStack>
       </VStack>

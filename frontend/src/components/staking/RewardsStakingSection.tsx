@@ -9,7 +9,8 @@ import {
   Collapsible,
 } from "@chakra-ui/react";
 import { LuChevronRight, LuChevronDown, LuPlus } from "react-icons/lu";
-import { formatAmount, ubzeToHuman, calcRewardsStakingApr, calcRewardsStakingPending, isRewardActive } from "../../utils/stakingHelpers";
+import { calcRewardsStakingApr, calcRewardsStakingPending, isRewardActive } from "../../utils/stakingHelpers";
+import { AssetAmount, useAssets } from "../../assets";
 import { JoinRewardModal } from "./modals/JoinRewardModal";
 import { PendingUnlocks } from "./PendingUnlocks";
 import type {
@@ -178,13 +179,10 @@ function RewardGroup({
   onReload: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const { symbol } = useAssets();
 
-  // Denom display name (strip factory prefix for readability)
-  const denomName = group.stakingDenom.startsWith("factory/")
-    ? group.stakingDenom.split("/").pop() || group.stakingDenom
-    : group.stakingDenom === "ubze"
-    ? "BZE"
-    : group.stakingDenom;
+  // Display name resolved from on-chain metadata (factory/ibc/native aware).
+  const denomName = symbol(group.stakingDenom);
 
   const activeCount = group.rewards.length;
   const userActiveCount = group.userParticipations.length;
@@ -245,8 +243,9 @@ function RewardRow({
   onReload: () => void;
 }) {
   const [showJoinModal, setShowJoinModal] = useState(false);
-  const prizeDenom = reward.prize_denom === "ubze" ? "BZE" : reward.prize_denom;
-  const stakingDenom = reward.staking_denom === "ubze" ? "BZE" : reward.staking_denom;
+  const { symbol } = useAssets();
+  const prizeDenom = symbol(reward.prize_denom);
+  const stakingDenom = symbol(reward.staking_denom);
   const apr = calcRewardsStakingApr(
     reward.prize_amount,
     reward.duration,
@@ -277,7 +276,12 @@ function RewardRow({
               Progress: {progress}%
             </Text>
             <Text fontSize="xs" color="fg.muted">
-              Total staked: {formatAmount(ubzeToHuman(reward.staked_amount))}
+              Total staked:{" "}
+              <AssetAmount
+                amount={reward.staked_amount}
+                denom={reward.staking_denom}
+                maxDecimals={2}
+              />
             </Text>
           </HStack>
         </VStack>
@@ -286,11 +290,17 @@ function RewardRow({
           {participation ? (
             <VStack gap="0" align="end">
               <Text fontSize="xs" color="fg.muted">
-                Your stake: {formatAmount(ubzeToHuman(participation.amount))}
+                Your stake:{" "}
+                <AssetAmount
+                  amount={participation.amount}
+                  denom={reward.staking_denom}
+                  maxDecimals={2}
+                />
               </Text>
               {BigInt(pendingReward) > 0n && (
                 <Text fontSize="xs" color="teal.500">
-                  Pending: {formatAmount(ubzeToHuman(pendingReward))} {prizeDenom}
+                  Pending:{" "}
+                  <AssetAmount amount={pendingReward} denom={reward.prize_denom} />
                 </Text>
               )}
             </VStack>
