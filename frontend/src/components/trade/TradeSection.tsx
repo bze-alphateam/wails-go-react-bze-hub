@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Box, VStack, HStack, Text } from "@chakra-ui/react";
+import { Box, VStack, HStack, Text, Button } from "@chakra-ui/react";
 import { SectionTabs } from "../SectionTabs";
 import { useSectionView } from "../../hooks/useSectionView";
 import { useSharedAssets } from "../../context/AssetsContext";
@@ -8,6 +8,8 @@ import { SwapCard } from "./SwapCard";
 import { MarketList } from "./terminal/MarketList";
 import { Terminal } from "./terminal/Terminal";
 import { OpenOrdersSummary } from "./terminal/OpenOrdersSummary";
+import { PoolList } from "./pools/PoolList";
+import { PoolManage } from "./pools/PoolManage";
 
 interface TradeSectionProps {
   address: string;
@@ -50,7 +52,7 @@ export function TradeSection({
         </HStack>
 
         {isAdvanced ? (
-          <AdvancedTrade address={address} />
+          <AdvancedTrade address={address} proxyTarget={proxyTarget} />
         ) : (
           <VStack gap="4" align="stretch">
             <OpenOrdersSummary address={address} onGoAdvanced={() => setView("advanced")} />
@@ -67,16 +69,22 @@ export function TradeSection({
   );
 }
 
-/**
- * The Advanced trade experience: a market list that opens into a per-market
- * terminal. The selected market is held here (Trade-section state) so the list
- * and terminal are one navigation. Assets are loaded once and shared with both.
- */
-function AdvancedTrade({ address }: { address: string }) {
-  const { resolve, logo } = useSharedAssets();
-  const [selectedMarket, setSelectedMarket] = useState<tradebin.MarketWithStats | null>(null);
+type AdvancedTab = "markets" | "pools";
 
-  if (selectedMarket) {
+/**
+ * The Advanced trade experience: a Markets | Pools sub-navigation. Markets is a
+ * market list that opens into a per-market terminal (BHUB-27); Pools is the
+ * liquidity-pool list that opens into a per-pool manage view (BHUB-30). The
+ * selected market/pool is held here so each list and its detail are one
+ * navigation; assets are loaded once and shared across all of them.
+ */
+function AdvancedTrade({ address, proxyTarget }: { address: string; proxyTarget: string }) {
+  const { resolve, logo } = useSharedAssets();
+  const [tab, setTab] = useState<AdvancedTab>("markets");
+  const [selectedMarket, setSelectedMarket] = useState<tradebin.MarketWithStats | null>(null);
+  const [selectedPoolId, setSelectedPoolId] = useState<string | null>(null);
+
+  if (tab === "markets" && selectedMarket) {
     return (
       <Terminal
         market={selectedMarket}
@@ -88,5 +96,43 @@ function AdvancedTrade({ address }: { address: string }) {
     );
   }
 
-  return <MarketList resolve={resolve} logo={logo} onSelect={setSelectedMarket} />;
+  if (tab === "pools" && selectedPoolId) {
+    return (
+      <PoolManage
+        poolId={selectedPoolId}
+        proxyTarget={proxyTarget}
+        address={address}
+        onBack={() => setSelectedPoolId(null)}
+      />
+    );
+  }
+
+  return (
+    <VStack gap="4" align="stretch">
+      <HStack gap="0" bg="bg.subtle" borderRadius="md" p="1" alignSelf="flex-start" role="tablist">
+        <SubNavButton label="Markets" active={tab === "markets"} onClick={() => setTab("markets")} />
+        <SubNavButton label="Pools" active={tab === "pools"} onClick={() => setTab("pools")} />
+      </HStack>
+      {tab === "markets" ? (
+        <MarketList resolve={resolve} logo={logo} onSelect={setSelectedMarket} />
+      ) : (
+        <PoolList proxyTarget={proxyTarget} onSelect={(p) => setSelectedPoolId(p.id)} />
+      )}
+    </VStack>
+  );
+}
+
+function SubNavButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <Button
+      role="tab"
+      aria-selected={active}
+      size="sm"
+      variant={active ? "solid" : "ghost"}
+      colorPalette="blue"
+      onClick={onClick}
+    >
+      {label}
+    </Button>
+  );
 }
