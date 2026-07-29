@@ -110,12 +110,12 @@ func (c *Client) Close() {
 }
 
 func (c *Client) getLocalConn() (*grpc.ClientConn, error) {
-	if c.localConn != nil && c.localConn.GetState() == connectivity.Ready {
+	// Reuse the existing connection unless it was explicitly closed. grpc.Dial is
+	// lazy (a fresh conn is Idle, not Ready) and gRPC reconnects transient
+	// failures internally — treating non-Ready as broken made every caller close
+	// the conn concurrent RPCs were still using (BHUB-33).
+	if c.localConn != nil && c.localConn.GetState() != connectivity.Shutdown {
 		return c.localConn, nil
-	}
-
-	if c.localConn != nil {
-		c.localConn.Close()
 	}
 
 	logging.Debug("chain", "connecting to local gRPC at %s", c.localAddr)
@@ -132,12 +132,9 @@ func (c *Client) getLocalConn() (*grpc.ClientConn, error) {
 }
 
 func (c *Client) getPublicConn() (*grpc.ClientConn, error) {
-	if c.pubConn != nil && c.pubConn.GetState() == connectivity.Ready {
+	// Same reuse rule as getLocalConn: only a Shutdown conn is replaced.
+	if c.pubConn != nil && c.pubConn.GetState() != connectivity.Shutdown {
 		return c.pubConn, nil
-	}
-
-	if c.pubConn != nil {
-		c.pubConn.Close()
 	}
 
 	logging.Debug("chain", "connecting to public gRPC at %s", c.publicAddr)
