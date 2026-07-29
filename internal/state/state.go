@@ -88,7 +88,11 @@ func (s *AppState) SetNodeStatus(status NodeStatus) {
 	ctx := s.ctx
 	s.mu.Unlock()
 
-	s.emit(ctx, "state:node-changed", s.GetNodeSnapshot())
+	// Emit only on an actual change: the health loop calls this every tick, and
+	// unconditional emits flood the frontend with refetch triggers (BHUB-33).
+	if prev != status {
+		s.emit(ctx, "state:node-changed", s.GetNodeSnapshot())
+	}
 }
 
 func (s *AppState) GetNodeHeight() int64 {
@@ -106,9 +110,8 @@ func (s *AppState) SetNodeHeight(height int64) {
 
 	if prev != height {
 		logging.Debug("state", "node height: %d → %d", prev, height)
+		s.emit(ctx, "state:node-changed", s.GetNodeSnapshot())
 	}
-
-	s.emit(ctx, "state:node-changed", s.GetNodeSnapshot())
 }
 
 func (s *AppState) SetNodeTargetHeight(height int64) {
@@ -139,9 +142,8 @@ func (s *AppState) SetProxyTarget(target string) {
 
 	if prev != target {
 		logging.Debug("state", "proxy target: %s → %s", prev, target)
+		s.emit(ctx, "state:node-changed", s.GetNodeSnapshot())
 	}
-
-	s.emit(ctx, "state:node-changed", s.GetNodeSnapshot())
 }
 
 // --- Wallet ---
