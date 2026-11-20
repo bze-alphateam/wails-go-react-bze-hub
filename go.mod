@@ -2,6 +2,8 @@ module github.com/bze-alphateam/bze-hub
 
 go 1.25.0
 
+toolchain go1.26.11
+
 require (
 	cosmossdk.io/math v1.4.0
 	github.com/bze-alphateam/bze v0.0.0-20260325184716-914475d39311
